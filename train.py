@@ -8,6 +8,10 @@ from scipy.spatial.distance import pdist
 from sklearn.grid_search import GridSearchCV
 from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.svm import SVC
+from scipy import ndimage as ndi
+
+from skimage.morphology import watershed
+from skimage.feature import peak_local_max
 
 from utils import preprocess, compute_crange, extract_patches, get_concave_components
 import argparse
@@ -20,19 +24,7 @@ class Detector:
 
     @property
     def training_data(self):
-        if self._training_data is not None:
-            return self._training_data
-        else:
-
-            # step = args.stride
-            # hi, hj, hk = self.half_voxel
-            # x, y, z = np.meshgrid(range(hi, X.shape[0] - hi, step), range(hj, X.shape[1] - hj, step),
-            #                       range(hk, X.shape[2] - hk, step))
-            # p_all = np.c_[x.ravel(), y.ravel(), z.ravel()].astype(int)
-            # X_all = extract_patches(X, p_all, vox_size)
-
-
-            self._training_data = (X_train, y_train)
+        self._training_data = (X_train, y_train)
 
     def add_training_data(self, X_train, y_train):
         self._training_data = (np.vstack((self._training_data[0], X_train)),
@@ -56,6 +48,7 @@ class Detector:
 
         pprint("Found best estimator")
         pprint(clf.best_estimator_)
+        pprint(clf.best_score_)
 
         self.classifier = clf.best_estimator_
 
@@ -69,9 +62,7 @@ class Detector:
 
 class Stack:
     def __init__(self, stack, voxel):
-        # self.curr_pos = 0
         self.stack = stack
-        # self.y = []
         self.voxel = voxel
 
     @property
@@ -85,9 +76,9 @@ class Stack:
 
         m_neg = negative_balance * len(cells)
         hi, hj, hk = self.half_voxel
-        not_cells = np.c_[np.random.randint(hi, X.shape[0] - hi, size=3 * m_neg),
-                          np.random.randint(hj, X.shape[1] - hj, size=3 * m_neg),
-                          np.random.randint(hk, X.shape[2] - hk, size=3 * m_neg)].astype(int)
+        not_cells = np.c_[np.random.randint(hi, X.shape[0] - hi - 1, size=3 * m_neg),
+                          np.random.randint(hj, X.shape[1] - hj - 1, size=3 * m_neg),
+                          np.random.randint(hk, X.shape[2] - hk - 1, size=3 * m_neg)].astype(int)
 
         idx = np.ones(len(not_cells), dtype=bool)
         r = np.sqrt(np.sum([h ** 2 for h in self.half_voxel]))
@@ -102,13 +93,17 @@ class Stack:
 
         return X_train, y_train
 
-    def explore(self, detector, stride, threshold=0.9, refine=True):
+    def detect_cells(self, detector, stride=5, threshold=0.9, refine=True):
         X = self.stack
         hi, hj, hk = self.half_voxel
-        x, y, z = np.meshgrid(range(hi, X.shape[0] - hi, stride), range(hj, X.shape[1] - hj, stride),
-                              range(hk, X.shape[2] - hk, stride))
+        # x, y, z = np.meshgrid(range(hi, X.shape[0] - hi, stride), range(hj, X.shape[1] - hj, stride),
+        #                       range(hk, X.shape[2] - hk, stride))
+        #
+        raster_pos = np.vstack([e.ravel() for e in np.mgrid[hi:X.shape[0] - hi + 1:stride,
+                                                   hj:X.shape[1] - hj + 1:stride,
+                                                   hk:X.shape[2] - hk + 1:stride]]).T
 
-        raster_pos = np.c_[x.ravel(), y.ravel(), z.ravel()].astype(int)
+        # np.c_[x.ravel(), y.ravel(), z.ravel()].astype(int)
 
         X_all = extract_patches(self.stack, raster_pos, self.voxel)
         # ----------------------------------
@@ -125,12 +120,19 @@ class Stack:
             prob = detector.positive_prob(X_all)
             raster_pos = raster_pos[prob > threshold]
             prob = prob[prob > threshold]
-            raster_pos = get_concave_components(raster_pos, prob)
+            S = np.zeros(self.stack.shape[:3])
+            S[tuple(zip(*raster_pos))] = prob
+            # local_maxi = peak_local_max(S, indices=False,footprint=np.ones((3, 3,3)), threshold_abs=threshold)
+            # markers = ndi.label(local_maxi)[0]
+            raster_pos = peak_local_max(S, footprint=np.ones((3, 3, 3)), threshold_abs=threshold)
 
+
+            # raster_pos = get_concave_components(raster_pos, prob)
+        return raster_pos
+
+    def explore(self, raster_pos):
         self._explore_state = dict(positions=raster_pos, y=[], idx=0,
-                                   z=raster_pos[0, 2],
-                                   )
-
+                                   z=raster_pos[0, 2])
         gs = plt.GridSpec(2, 3)
         fig = plt.figure()
         self._explore_state['ax_stack'] = fig.add_subplot(gs[:2, :2])
@@ -164,8 +166,8 @@ class Stack:
                 plt.close(self._explore_state['fig'])
                 return
             self._explore_state['z'] = self._explore_state['positions'][self._explore_state['idx'], 2]
-        elif e.key == 'esc':
-            self._explore_state['fig'].close()
+        elif e.key == 'q':
+            plt.close(self._explore_state['fig'])
         else:
             return
 
@@ -186,7 +188,8 @@ class Stack:
 
         self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, 2] = .3
         self._explore_state['ax_stack'].imshow(self.stack[..., self._explore_state['z'], :], cmap=plt.cm.gray)
-        self._explore_state['ax_stack'].set_title('Slice %i' % self._explore_state['z'])
+        self._explore_state['ax_stack'].set_title(
+            'Slice %i (%i)' % (self._explore_state['z'], self._explore_state['z'] - k))
         self._explore_state['fig'].canvas.draw()
         self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, 2] = 0
 
@@ -245,7 +248,10 @@ if __name__ == '__main__':
         with open(args.detector, 'rb') as fid:
             det = pickle.load(fid)
         stk.voxel = det.voxel
-        stk.explore(det, args.stride, args.prob)
+        cells = stk.detect_cells(det, args.stride, args.prob)
+        print('Found %i cells' % (len(cells)))
+        stk.explore(cells)
+
 
     elif p is not None:  # if not, train it
         X_train, y_train = stk.generate_training_data(p)

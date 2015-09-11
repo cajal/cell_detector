@@ -5,36 +5,36 @@ from scipy.ndimage import convolve1d
 from scipy.signal import medfilt, hamming
 
 
-class Coord2Pixel:
-    def __init__(self, x_bin_centers, y_bin_centers, z_bin_centers):
-        dx = np.diff(x_bin_centers)
-        assert dx.var() < 1e-20, "Bin center spacing should be equidistant"
-        dx = dx[0]
-        print('Bin distance x', dx)
-        dy = np.diff(y_bin_centers)
-        assert dy.var() < 1e-20, "Bin center spacing should be equidistant"
-        dy = dy[0]
+# class Coord2Pixel:
+#     def __init__(self, x_bin_centers, y_bin_centers, z_bin_centers):
+#         dx = np.diff(x_bin_centers)
+#         assert dx.var() < 1e-20, "Bin center spacing should be equidistant"
+#         dx = dx[0]
+#         print('Bin distance x', dx)
+#         dy = np.diff(y_bin_centers)
+#         assert dy.var() < 1e-20, "Bin center spacing should be equidistant"
+#         dy = dy[0]
+#
+#         dz = np.diff(z_bin_centers)
+#         assert dz.var() < 1e-20, "Bin center spacing should be equidistant"
+#         dz = dz[0]
+#         print('Bin distance z', dz)
+#
+#         self.xedges = np.arange(x_bin_centers[0] - dx / 2, x_bin_centers[-1] + 3 * dx / 2, dx)
+#         self.yedges = np.arange(y_bin_centers[0] - dy / 2, y_bin_centers[-1] + 3 * dy / 2, dy)
+#         self.zedges = np.arange(z_bin_centers[0] - dz / 2, z_bin_centers[-1] + 3 * dz / 2, dz)
+#
+#     def __call__(self, X):
+#         return np.c_[
+#             np.digitize(X[:, 0], self.xedges) - 1,
+#             np.digitize(X[:, 1], self.yedges) - 1,
+#             np.digitize(X[:, 2], self.zedges) - 1
+#         ].astype(int)
 
-        dz = np.diff(z_bin_centers)
-        assert dz.var() < 1e-20, "Bin center spacing should be equidistant"
-        dz = dz[0]
-        print('Bin distance z', dz)
 
-        self.xedges = np.arange(x_bin_centers[0] - dx / 2, x_bin_centers[-1] + 3 * dx / 2, dx)
-        self.yedges = np.arange(y_bin_centers[0] - dy / 2, y_bin_centers[-1] + 3 * dy / 2, dy)
-        self.zedges = np.arange(z_bin_centers[0] - dz / 2, z_bin_centers[-1] + 3 * dz / 2, dz)
-
-    def __call__(self, X):
-        return np.c_[
-            np.digitize(X[:, 0], self.xedges) - 1,
-            np.digitize(X[:, 1], self.yedges) - 1,
-            np.digitize(X[:, 2], self.zedges) - 1
-        ].astype(int)
-
-
-def extract_patches(X, pixels, vox_size, channels=slice(0, 2)):
+def extract_patches(X, pixels, voxel, channels=slice(0, 2)):
     ret = []
-    vi, vj, vk = vox_size
+    vi, vj, vk = voxel
     assert vi % 2 == 1 and vj % 2 == 1 and vk % 2 == 1, 'Voxels must have odd number of pixels at each side.'
     hi, hj, hk = int((vi - 1) / 2), int((vj - 1) / 2), int((vk - 1) / 2)
 
@@ -44,7 +44,6 @@ def extract_patches(X, pixels, vox_size, channels=slice(0, 2)):
 
     for (i, j, k) in pixels[idx]:
         x = X[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, channels]
-        # if np.any(x) and x.size == np.prod(vox_size):
         ret.append(x.mean(axis=3).ravel())
     return np.vstack(ret)
 
@@ -61,7 +60,8 @@ def preprocess(X):
         convolve1d(lp, h, axis=i, output=lp)
     X = X - lp
 
-    return (X - X.min()) / (X.max() - X.min())
+    # return (X - X.min()) / (X.max() - X.min())
+    return histeq(X, 500)
 
 
 def histeq(x, bins=500):
@@ -71,7 +71,7 @@ def histeq(x, bins=500):
     cdf /= cdf[-1]  # normalize
     # use linear interpolation of cdf to find new pixel values
     # out = np.interp(x.ravel(), edges[:-1], cdf)
-    target = stats.beta.ppf(cdf, .8, 10)
+    target = stats.beta.ppf(cdf, .9, 10)
     out = np.interp(x.ravel(), edges[:-1], target)
 
     return out.reshape(x.shape)
@@ -95,6 +95,7 @@ def compute_crange(K, basefactors=2 ** np.arange(-3, 4.)):
         warnings.warn("Variance in feature space is 0. Using 1!")
     return basefactors / s2
 
+
 def get_concave_components(pos, f):
     visited = np.zeros(len(f), dtype=bool)
     component_idx = []
@@ -110,8 +111,8 @@ def get_concave_components(pos, f):
 
 
 def visit_neigbours(active_set, pos, f, visited):
-    D = np.sum(np.abs(pos[:, None, :] - pos[active_set][None, ...]) , axis=2)
-    for f_val, elem in zip(f[active_set],D.T):
+    D = np.sum(np.abs(pos[:, None, :] - pos[active_set][None, ...]), axis=2)
+    for f_val, elem in zip(f[active_set], D.T):
         idx = (elem == 1) & ~visited & (f <= f_val)
         visited[idx] = True
         if np.any(idx):
