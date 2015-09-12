@@ -80,7 +80,6 @@ class Stack:
                           np.random.randint(hj, X.shape[1] - hj - 1, size=3 * m_neg),
                           np.random.randint(hk, X.shape[2] - hk - 1, size=3 * m_neg)].astype(int)
 
-        idx = np.ones(len(not_cells), dtype=bool)
         r = np.sqrt(np.sum([h ** 2 for h in self.half_voxel]))
 
         D = np.sqrt(np.sum((not_cells[:, None, :] - cells[None, ...]) ** 2, axis=2))
@@ -96,12 +95,9 @@ class Stack:
     def detect_cells(self, detector, stride=5, threshold=0.9, refine=True):
         X = self.stack
         hi, hj, hk = self.half_voxel
-        # x, y, z = np.meshgrid(range(hi, X.shape[0] - hi, stride), range(hj, X.shape[1] - hj, stride),
-        #                       range(hk, X.shape[2] - hk, stride))
-        #
-        raster_pos = np.vstack([e.ravel() for e in np.mgrid[hi:X.shape[0] - hi + 1:stride,
-                                                   hj:X.shape[1] - hj + 1:stride,
-                                                   hk:X.shape[2] - hk + 1:stride]]).T
+        raster_pos = np.vstack([e.ravel() for e in np.mgrid[hi:X.shape[0] - hi - 1:stride,
+                                                   hj:X.shape[1] - hj - 1:stride,
+                                                   hk:X.shape[2] - hk - 1:stride]]).T
 
         # np.c_[x.ravel(), y.ravel(), z.ravel()].astype(int)
 
@@ -146,9 +142,9 @@ class Stack:
         vi, vj, vk = self.voxel
         hi, hj, hk = int((vi - 1) / 2), int((vj - 1) / 2), int((vk - 1) / 2)
 
-        if e.key == "down":
+        if e.key == "+":
             self._explore_state['z'] = min(self._explore_state['z'] + 1, self.stack.shape[2] - 1)
-        elif e.key == "up":
+        elif e.key == "-":
             self._explore_state['z'] = max(self._explore_state['z'] - 1, 0)
         elif e.key == "y":
             self._explore_state['y'].append(1)
@@ -166,11 +162,20 @@ class Stack:
                 plt.close(self._explore_state['fig'])
                 return
             self._explore_state['z'] = self._explore_state['positions'][self._explore_state['idx'], 2]
+        elif e.key in ['8','5','4','6']:
+            d = np.zeros(3)
+            if e.key in ['8','5']:
+                d[0] = (-1)**(e.key == '8')
+            elif e.key in ['4','6']:
+                d[1] = (-1)**(e.key == '4')
+            self._explore_state['positions'][self._explore_state['idx']] += d
         elif e.key == 'q':
             plt.close(self._explore_state['fig'])
         else:
             return
 
+        if e.key in ['y','n']:
+            self._explore_state['fig'].savefig('/home/fabee/Downloads/detection/fig%02i.png' % self._explore_state['idx'])
         self._explore_state['ax_stack'].clear()
         self._explore_state['ax_ch1'].clear()
         self._explore_state['ax_ch2'].clear()
@@ -186,11 +191,19 @@ class Stack:
             cmap=plt.cm.gray)
         self._explore_state['ax_ch2'].set_title('Channel 2')
 
-        self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, 2] = .3
+        self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, 2] = .2
         self._explore_state['ax_stack'].imshow(self.stack[..., self._explore_state['z'], :], cmap=plt.cm.gray)
+        self._explore_state['ax_stack'].plot([j - hj,j + hj], [i + hi,i + hi],'-r')
+        self._explore_state['ax_stack'].plot([j - hj,j + hj], [i - hi,i - hi],'-r')
+        self._explore_state['ax_stack'].plot([j + hj,j + hj], [i - hi,i + hi],'-r')
+        self._explore_state['ax_stack'].plot([j - hj,j - hj], [i - hi,i + hi],'-r')
+        self._explore_state['ax_stack'].axis('tight')
         self._explore_state['ax_stack'].set_title(
             'Slice %i (%i)' % (self._explore_state['z'], self._explore_state['z'] - k))
+
+
         self._explore_state['fig'].canvas.draw()
+
         self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, 2] = 0
 
 
@@ -251,7 +264,6 @@ if __name__ == '__main__':
         cells = stk.detect_cells(det, args.stride, args.prob)
         print('Found %i cells' % (len(cells)))
         stk.explore(cells)
-
 
     elif p is not None:  # if not, train it
         X_train, y_train = stk.generate_training_data(p)
