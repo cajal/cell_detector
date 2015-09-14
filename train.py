@@ -1,20 +1,19 @@
 from itertools import product
 import pickle
 from pprint import pprint
+import argparse
+import h5py
+
 from matplotlib import pyplot as plt
-from scipy import io
 import numpy as np
 from scipy.spatial.distance import pdist
 from sklearn.grid_search import GridSearchCV
 from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.svm import SVC
-from scipy import ndimage as ndi
 
-from skimage.morphology import watershed
 from skimage.feature import peak_local_max
 
-from utils import preprocess, compute_crange, extract_patches, get_concave_components
-import argparse
+from utils import compute_crange, extract_patches, preprocess
 
 
 class Detector:
@@ -24,11 +23,11 @@ class Detector:
 
     @property
     def training_data(self):
-        self._training_data = (X_train, y_train)
+        return self._training_data
 
     def add_training_data(self, X_train, y_train):
         self._training_data = (np.vstack((self._training_data[0], X_train)),
-                               np.vstack((self._training_data[1], y_train)))
+                               np.hstack((self._training_data[1], y_train)))
 
     def fit(self, X_train, y_train):
         self._training_data = X_train, y_train
@@ -127,8 +126,7 @@ class Stack:
         return raster_pos
 
     def explore(self, raster_pos):
-        self._explore_state = dict(positions=raster_pos, y=[], idx=0,
-                                   z=raster_pos[0, 2])
+        self._explore_state = dict(positions=raster_pos, y=[], idx=0)
         gs = plt.GridSpec(2, 3)
         fig = plt.figure()
         self._explore_state['ax_stack'] = fig.add_subplot(gs[:2, :2])
@@ -142,18 +140,13 @@ class Stack:
         vi, vj, vk = self.voxel
         hi, hj, hk = int((vi - 1) / 2), int((vj - 1) / 2), int((vk - 1) / 2)
 
-        if e.key == "+":
-            self._explore_state['z'] = min(self._explore_state['z'] + 1, self.stack.shape[2] - 1)
-        elif e.key == "-":
-            self._explore_state['z'] = max(self._explore_state['z'] - 1, 0)
-        elif e.key == "y":
+        if e.key == "y":
             self._explore_state['y'].append(1)
             print(self._explore_state['y'])
             self._explore_state['idx'] += 1
             if self._explore_state['idx'] >= len(self._explore_state['positions']):
                 plt.close(self._explore_state['fig'])
                 return
-            self._explore_state['z'] = self._explore_state['positions'][self._explore_state['idx'], 2]
         elif e.key == "n":
             self._explore_state['y'].append(-1)
             print(self._explore_state['y'])
@@ -161,21 +154,20 @@ class Stack:
             if self._explore_state['idx'] >= len(self._explore_state['positions']):
                 plt.close(self._explore_state['fig'])
                 return
-            self._explore_state['z'] = self._explore_state['positions'][self._explore_state['idx'], 2]
-        elif e.key in ['8','5','4','6']:
+        elif e.key in ['8', '5', '4', '6', '+', '-']:
             d = np.zeros(3)
-            if e.key in ['8','5']:
-                d[0] = (-1)**(e.key == '8')
-            elif e.key in ['4','6']:
-                d[1] = (-1)**(e.key == '4')
+            if e.key in ['8', '5']:
+                d[0] = (-1) ** (e.key == '8')
+            elif e.key in ['4', '6']:
+                d[1] = (-1) ** (e.key == '4')
+            elif e.key in ['+', '-']:
+                d[2] = (-1) ** (e.key == '-')
             self._explore_state['positions'][self._explore_state['idx']] += d
         elif e.key == 'q':
             plt.close(self._explore_state['fig'])
         else:
             return
 
-        if e.key in ['y','n']:
-            self._explore_state['fig'].savefig('/home/fabee/Downloads/detection/fig%02i.png' % self._explore_state['idx'])
         self._explore_state['ax_stack'].clear()
         self._explore_state['ax_ch1'].clear()
         self._explore_state['ax_ch2'].clear()
@@ -183,24 +175,23 @@ class Stack:
         i, j, k = self._explore_state['positions'][self._explore_state['idx']]
 
         self._explore_state['ax_ch1'].imshow(
-            self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, self._explore_state['z'], 0],
+            self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k, 0],
             cmap=plt.cm.gray)
         self._explore_state['ax_ch1'].set_title('Channel 1')
         self._explore_state['ax_ch2'].imshow(
-            self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, self._explore_state['z'], 1],
+            self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k, 1],
             cmap=plt.cm.gray)
         self._explore_state['ax_ch2'].set_title('Channel 2')
 
         self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, 2] = .2
-        self._explore_state['ax_stack'].imshow(self.stack[..., self._explore_state['z'], :], cmap=plt.cm.gray)
-        self._explore_state['ax_stack'].plot([j - hj,j + hj], [i + hi,i + hi],'-r')
-        self._explore_state['ax_stack'].plot([j - hj,j + hj], [i - hi,i - hi],'-r')
-        self._explore_state['ax_stack'].plot([j + hj,j + hj], [i - hi,i + hi],'-r')
-        self._explore_state['ax_stack'].plot([j - hj,j - hj], [i - hi,i + hi],'-r')
+        self._explore_state['ax_stack'].imshow(self.stack[..., k, :], cmap=plt.cm.gray)
+        self._explore_state['ax_stack'].plot([j - hj, j + hj], [i + hi, i + hi], '-r')
+        self._explore_state['ax_stack'].plot([j - hj, j + hj], [i - hi, i - hi], '-r')
+        self._explore_state['ax_stack'].plot([j + hj, j + hj], [i - hi, i + hi], '-r')
+        self._explore_state['ax_stack'].plot([j - hj, j - hj], [i - hi, i + hi], '-r')
         self._explore_state['ax_stack'].axis('tight')
         self._explore_state['ax_stack'].set_title(
-            'Slice %i (%i)' % (self._explore_state['z'], self._explore_state['z'] - k))
-
+            'Slice %i' % (k,))
 
         self._explore_state['fig'].canvas.draw()
 
@@ -213,7 +204,8 @@ def parse_command_line():
     """
 
     parser = argparse.ArgumentParser(description=help)
-    parser.add_argument('stackfile', help='matlab file containing the stack')
+    parser.add_argument('stackfile',
+                        help='hdf5 files file containing the stack and the cell positions (dataset stack and cells)')
     parser.add_argument('--voxel', '-v',
                         help='voxel size (comma separated list). Voxels size lengths must be odd. (default 17,17,13)',
                         default='17,17,13')
@@ -222,7 +214,6 @@ def parse_command_line():
     parser.add_argument('--mnegative', '-m', help='How many times more negative examples do you want (default 5).',
                         default=5, type=int)
     parser.add_argument('--detector', '-d', help='Use previously trained detector in that file.')
-    parser.add_argument('--positions', '-p', help='Positions used for training.')
     parser.add_argument('--outfile', '-o', help='Outfile, where the detector will be stored (defailt detector.pkl). ',
                         default='detector.pkl')
     parser.add_argument('--prob', '-q', help='Positive probability threshold (default 0.9) ',
@@ -231,24 +222,19 @@ def parse_command_line():
     return parser.parse_args()
 
 
-def load_data(args):
-    voldata = io.loadmat(args.stackfile)['voldata']  # data/2015-08-25_12-49-41_2015-08-25_13-02-18.mat
-    if args.positions:
-        p = io.loadmat(args.positions)['p'].astype(int) - 1  # data/cell_locations.mat
-    else:
-        p = None
-
-    voldata = preprocess(voldata.astype(float))
-    X = np.concatenate((voldata, 0 * voldata[..., 0][..., None]), axis=-1).squeeze()
-    return X, p
-
-
 if __name__ == '__main__':
     # --- command line parsing
     args = parse_command_line()
 
     # --- load data
-    X, p = load_data(args)
+    with h5py.File(args.stackfile, 'r') as fid:
+        X = preprocess(np.asarray(fid['stack']))
+        X = np.concatenate((X, 0 * X[..., 0][..., None]), axis=-1).squeeze()
+        if 'cells' in fid:
+            p = np.asarray(fid['cells'])
+        else:
+            p = None
+
     voxel = tuple(int(e) for e in args.voxel.split(','))
     for v in voxel:
         assert v % 2 == 1, 'Voxel side lengths must be odd'
@@ -256,7 +242,6 @@ if __name__ == '__main__':
 
 
     # --- set voxel size and stride
-
     if args.detector:  # if detector is specified
         with open(args.detector, 'rb') as fid:
             det = pickle.load(fid)
@@ -264,6 +249,19 @@ if __name__ == '__main__':
         cells = stk.detect_cells(det, args.stride, args.prob)
         print('Found %i cells' % (len(cells)))
         stk.explore(cells)
+
+        p = stk._explore_state['positions']
+        y = np.asarray(stk._explore_state['y'])
+        with h5py.File(args.stackfile,'r+') as fid:
+            if not 'cells' in fid:
+                print('Adding positions to hdf5 file')
+                fid.create_dataset('cells', p.shape, dtype=int, data=p)
+
+        Xnew = extract_patches(X, p, voxel)
+        det.add_training_data(Xnew, y)
+        det.retrain()
+        with open(args.outfile, 'wb') as fid:
+            pickle.dump(det, fid, protocol=pickle.HIGHEST_PROTOCOL)
 
     elif p is not None:  # if not, train it
         X_train, y_train = stk.generate_training_data(p)

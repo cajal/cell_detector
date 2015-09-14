@@ -24,22 +24,3 @@ stk = Stack(X, (19,19,15))
 
 stk.explore(p-1)
 
-# fig, ax = plt.subplots()
-# plt.ion()
-# plt.show()
-#
-# for (i, j, k) in p:
-#     X[i - 8:i + 9, j - 8:j + 9, k - 6:k + 7, 2] = .3
-#
-# for i in range(X.shape[2]):
-#     ax.clear()
-#     ax.imshow(X[..., i, :], cmap=plt.cm.jet)
-#     # if np.any(p[:,2] == i):
-#     #     # idx = (p[:,2] > i - 5) & (p[:,2] < i + 5)
-#     #     idx = p[:,2] == i
-#     #     x = p[idx]
-#     #     ax.plot(x[:,1], x[:,0],'ok', color='orange')
-#     ax.axis('tight')
-#     plt.draw()
-#
-#     input()
