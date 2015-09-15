@@ -3,17 +3,14 @@ import pickle
 from pprint import pprint
 import argparse
 import h5py
-
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy.spatial.distance import pdist
 from sklearn.grid_search import GridSearchCV
 from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.svm import SVC
-
 from skimage.feature import peak_local_max
-
-from utils import compute_crange, extract_patches, preprocess
+from utils import compute_crange, preprocess
 
 
 class Detector:
@@ -85,7 +82,7 @@ class Stack:
         not_cells = not_cells[np.all(D >= r, axis=1)][:min(m_neg, len(not_cells))]
         print('Using %i of %i negative examples' % (len(not_cells), m_neg))
 
-        X_train = extract_patches(X, np.r_[cells, not_cells], self.voxel)
+        X_train = self.extract_patches(np.r_[cells, not_cells])
         y_train = np.ones(len(X_train))
         y_train[len(cells):] = -1
 
@@ -100,7 +97,7 @@ class Stack:
 
         # np.c_[x.ravel(), y.ravel(), z.ravel()].astype(int)
 
-        X_all = extract_patches(self.stack, raster_pos, self.voxel)
+        X_all = self.extract_patches(raster_pos)
         # ----------------------------------
 
         prob = detector.positive_prob(X_all)
@@ -110,23 +107,42 @@ class Stack:
         if refine:
             sh = int((stride + 1) / 2)
             dpos = np.vstack([e.ravel() for e in np.mgrid[-sh:sh + 1, -sh:sh + 1, -sh:sh + 1]]).T
+
             raster_pos = np.vstack([e1 + e2 for e1, e2 in product(raster_pos, dpos)])
-            X_all = extract_patches(self.stack, raster_pos, self.voxel)
+
+            X_all = self.extract_patches(raster_pos)
             prob = detector.positive_prob(X_all)
+
+            P = np.zeros(self.stack.shape[:3])
+            P[tuple(zip(*raster_pos))] = prob
+
             raster_pos = raster_pos[prob > threshold]
-            prob = prob[prob > threshold]
-            S = np.zeros(self.stack.shape[:3])
-            S[tuple(zip(*raster_pos))] = prob
+            # prob = prob[prob > threshold]
             # local_maxi = peak_local_max(S, indices=False,footprint=np.ones((3, 3,3)), threshold_abs=threshold)
             # markers = ndi.label(local_maxi)[0]
-            raster_pos = peak_local_max(S, footprint=np.ones((3, 3, 3)), threshold_abs=threshold)
-
+            raster_pos = peak_local_max(P, footprint=np.ones((5, 5, 5)), threshold_abs=threshold)
 
             # raster_pos = get_concave_components(raster_pos, prob)
-        return raster_pos
+        return raster_pos, P
 
-    def explore(self, raster_pos):
-        self._explore_state = dict(positions=raster_pos, y=[], idx=0)
+
+    def extract_patches(self, pixels, channels=slice(0, 2)):
+        ret = []
+        hi, hj, hk = self.half_voxel
+        X = self.stack
+
+        M, N, K = X.shape[:3]
+        idx = (pixels[:, 0] >= hi) & (pixels[:, 1] >= hj) & (pixels[:, 2] >= hk) & (pixels[:, 0] < M - hi) & \
+              (pixels[:, 1] < N - hj) & (pixels[:, 2] < K - hk)
+
+        for (i, j, k) in pixels[idx]:
+            x = X[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, channels]
+            ret.append(x.mean(axis=3).ravel())
+        return np.vstack(ret)
+
+
+    def explore(self, raster_pos, prob=None):
+        self._explore_state = dict(positions=raster_pos, y=[], idx=0, probability=prob)
         gs = plt.GridSpec(2, 3)
         fig = plt.figure()
         self._explore_state['ax_stack'] = fig.add_subplot(gs[:2, :2])
@@ -173,6 +189,8 @@ class Stack:
         self._explore_state['ax_ch2'].clear()
 
         i, j, k = self._explore_state['positions'][self._explore_state['idx']]
+        if self._explore_state['probability'] is not None:
+            print('P(cell)=%.4g' % self._explore_state['probability'][i, j, k])
 
         self._explore_state['ax_ch1'].imshow(
             self.stack[i - hi:i + hi + 1, j - hj:j + hj + 1, k, 0],
@@ -201,6 +219,14 @@ class Stack:
 def parse_command_line():
     help = """
     (Re)Train a cell detector on a recorded stack and identified positions.
+
+    If a detector is supplied via -d, the script assumes that the detector should be retrained. In that case,
+    the detector is run on the current stack, extracts all cells and shows them one by one to be reclassified.
+    The window for reclassification can be controlled as follows: adjust window (8, 4, 5, 6 i.e. directions on num block),
+    adjust depth (+, -), classify as cell (y), classify as not-cell (n), quit and retrain (q). The retrained classifier
+    will be stored in the argument of -o (or detector.pkl if not supplied). If no detector is supplied and if the hdf5
+    file contains a dataset called 'cells' which specifies the cell positions in pixels, then a new detector is trained
+    and stored in the file supplied by -o.
     """
 
     parser = argparse.ArgumentParser(description=help)
@@ -246,18 +272,18 @@ if __name__ == '__main__':
         with open(args.detector, 'rb') as fid:
             det = pickle.load(fid)
         stk.voxel = det.voxel
-        cells = stk.detect_cells(det, args.stride, args.prob)
+        cells, prob = stk.detect_cells(det, args.stride, args.prob)
         print('Found %i cells' % (len(cells)))
-        stk.explore(cells)
+        stk.explore(cells, prob=prob)
 
         p = stk._explore_state['positions']
         y = np.asarray(stk._explore_state['y'])
-        with h5py.File(args.stackfile,'r+') as fid:
+        with h5py.File(args.stackfile, 'r+') as fid:
             if not 'cells' in fid:
                 print('Adding positions to hdf5 file')
                 fid.create_dataset('cells', p.shape, dtype=int, data=p)
 
-        Xnew = extract_patches(X, p, voxel)
+        Xnew = stk.extract_patches(p)
         det.add_training_data(Xnew, y)
         det.retrain()
         with open(args.outfile, 'wb') as fid:
