@@ -18,6 +18,8 @@ def parse_command_line():
                         a dataset called 'stack'.""")
     parser.add_argument('detector', help='Trained detector generated with train.py.')
     parser.add_argument('outfile', help='Matlab file storing the pixel positions in the variable "cells"')
+    parser.add_argument('--jobs', '-j', help='Parallelize into j jobs (default = 1)',
+                        default=1, type=int)
     parser.add_argument('--prob', '-q', help='Positive probability threshold (default 0.95) ',
                         default=0.95, type=float)
     parser.add_argument('--stride', '-s', help='Stride when searching for new cells (default 5).',
@@ -39,6 +41,6 @@ if __name__ == '__main__':
 
     stk = Stack(X, det.voxel)
 
-    cells, prob = stk.detect_cells(det, args.stride, args.prob)
+    cells, prob = stk.detect_cells(det, args.stride, args.prob, n_jobs=args.jobs)
     print('Found %i cells' % (len(cells)))
     io.savemat(args.outfile, {'cells': cells})

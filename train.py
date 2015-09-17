@@ -6,12 +6,21 @@ import h5py
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy.spatial.distance import pdist
+from sklearn.cross_validation import KFold
 from sklearn.grid_search import GridSearchCV
 from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.svm import SVC
 from skimage.feature import peak_local_max
 from utils import compute_crange, preprocess
+from multiprocessing import Pool
 
+
+def split(n, k):
+    step = int(np.ceil(n/k))
+    cur = 0
+    while cur < n:
+        yield slice(cur, min(cur + step, n))
+        cur += step
 
 class Detector:
     def __init__(self, voxel):
@@ -51,8 +60,15 @@ class Detector:
     def retrain(self):
         self.fit(*self.training_data)
 
-    def positive_prob(self, X):
-        prob_all = self.classifier.predict_proba(X)
+    def positive_prob(self, X, n_jobs=1):
+        if n_jobs == 1:
+            prob_all = self.classifier.predict_proba(X)
+        else:
+            pool = Pool(processes=n_jobs) # depends on available cores
+            result = pool.map(self.classifier.predict_proba, [X[idx] for idx in split(len(X), n_jobs)]) # for i in sequence: result[i] = f(i)
+            prob_all = np.vstack(result)
+            pool.close() # not optimal! but easy
+            pool.join()
         return prob_all[:, 1]
 
 
@@ -88,7 +104,7 @@ class Stack:
 
         return X_train, y_train
 
-    def detect_cells(self, detector, stride=5, threshold=0.9, refine=True):
+    def detect_cells(self, detector, stride=5, threshold=0.9, refine=True, n_jobs=1):
         X = self.stack
         hi, hj, hk = self.half_voxel
         raster_pos = np.vstack([e.ravel() for e in np.mgrid[hi:X.shape[0] - hi - 1:stride,
@@ -97,10 +113,11 @@ class Stack:
 
         # np.c_[x.ravel(), y.ravel(), z.ravel()].astype(int)
 
-        X_all = self.extract_patches(raster_pos)
+        X_all, idx = self.extract_patches(raster_pos)
+        raster_pos = raster_pos[idx]
         # ----------------------------------
 
-        prob = detector.positive_prob(X_all)
+        prob = detector.positive_prob(X_all, n_jobs=n_jobs)
 
         raster_pos = raster_pos[prob > threshold]
 
@@ -110,8 +127,9 @@ class Stack:
 
             raster_pos = np.vstack([e1 + e2 for e1, e2 in product(raster_pos, dpos)])
 
-            X_all = self.extract_patches(raster_pos)
-            prob = detector.positive_prob(X_all)
+            X_all, idx = self.extract_patches(raster_pos)
+            raster_pos = raster_pos[idx]
+            prob = detector.positive_prob(X_all, n_jobs=n_jobs)
 
             P = np.zeros(self.stack.shape[:3])
             P[tuple(zip(*raster_pos))] = prob
@@ -138,7 +156,7 @@ class Stack:
         for (i, j, k) in pixels[idx]:
             x = X[i - hi:i + hi + 1, j - hj:j + hj + 1, k - hk:k + hk + 1, channels]
             ret.append(x.mean(axis=3).ravel())
-        return np.vstack(ret)
+        return np.vstack(ret), idx
 
 
     def explore(self, raster_pos, prob=None):
@@ -283,7 +301,8 @@ if __name__ == '__main__':
                 print('Adding positions to hdf5 file')
                 fid.create_dataset('cells', p.shape, dtype=int, data=p)
 
-        Xnew = stk.extract_patches(p)
+        Xnew, idx = stk.extract_patches(p)
+        p = p[idx]
         det.add_training_data(Xnew, y)
         det.retrain()
         with open(args.outfile, 'wb') as fid:
