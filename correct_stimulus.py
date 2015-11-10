@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 from scipy import io
 import numpy as np
 
-from train import Stack
+from stack import Stack
 from utils import preprocess
 import h5py
 

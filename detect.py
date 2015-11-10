@@ -2,7 +2,8 @@ import argparse
 import pickle
 import numpy as np
 import h5py
-from train import Stack, Detector
+from stack import Stack
+from Classifiers import Detector
 from utils import preprocess
 from scipy import io
 
