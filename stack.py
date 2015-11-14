@@ -40,17 +40,10 @@ class Stack:
         self.voxel = voxel
         self.linear_channels = linear_channels
         self.quadratic_channels = quadratic_channels
-        flt_width, flt_height, flt_time = self.voxel
+        flt_width, flt_height, flt_depth = self.voxel
 
-        self.U = np.random.randn(quadratic_channels, flt_width, flt_height, flt_time, 1)
-        self.W = np.random.randn(linear_channels, flt_width, flt_height, flt_time, 1)
-
-        self.U *= 0
-        self.W *= 0
-        x = np.asarray(list(itertools.product([-1,1], [-1,1], [-1,1])))
-        x[np.abs(x).sum(axis=1) == 1]
-        x,y,z = x.T
-        self.W[0, 1+x, 1+y, 1+z,0 ] = 1
+        self.U = np.random.randn(quadratic_channels, flt_width, flt_height, flt_depth, 1)
+        self.W = np.random.randn(linear_channels, flt_width, flt_height, flt_depth, 1)
 
         self.beta = np.random.randn(linear_channels, quadratic_channels)
         self.b = np.random.randn(linear_channels)
@@ -84,11 +77,9 @@ class Stack:
         _, in_width, in_height, in_depth, _ = X.shape
         X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
 
-        batchsize = 1
-        in_channels = 1
-
+        batchsize, in_channels = 1, 1
         linear_channels, quadratic_channels = self.linear_channels, self.quadratic_channels
-        flt_width, flt_height, flt_time = self.voxel
+        flt_width, flt_height, flt_depth = self.voxel
 
         U_ = tensor5()  # quadratic filter
         W_ = tensor5()  # linear filter
@@ -96,24 +87,24 @@ class Stack:
         beta_ = T.dmatrix()
 
         linear_filter_ = T.nnet.conv3d2d.conv3d(
-            signals=X_.dimshuffle(0, 3, 4, 1, 2),
-            filters=W_.dimshuffle(0, 3, 4, 1, 2),
+            signals=X_.dimshuffle(0, 3, 4, 2, 1),
+            filters=W_.dimshuffle(0, 3, 4, 2, 1),
             signals_shape=(batchsize, in_depth, in_channels, in_height, in_width),
-            filters_shape=(linear_channels, flt_time, in_channels, flt_height, flt_width),
+            filters_shape=(linear_channels, flt_depth, in_channels, flt_height, flt_width),
             border_mode='valid')
 
         quadr_filter_ = T.nnet.conv3d2d.conv3d(
-            signals=X_.dimshuffle(0, 3, 4, 1, 2),
-            filters=U_.dimshuffle(0, 3, 4, 1, 2),
+            signals=X_.dimshuffle(0, 3, 4, 2, 1),
+            filters=U_.dimshuffle(0, 3, 4, 2, 1),
             signals_shape=(batchsize, in_depth, in_channels, in_height, in_width),
-            filters_shape=(quadratic_channels, flt_time, in_channels, flt_height, flt_width),
+            filters_shape=(quadratic_channels, flt_depth, in_channels, flt_height, flt_width),
             border_mode='valid')
+
         quadr_filter_ = T.tensordot(quadr_filter_ ** 2, beta_, (2, 1)).dimshuffle(0, 1, 4, 2, 3)
 
         exponent_ = quadr_filter_ + linear_filter_ + b_.dimshuffle('x', 'x', 0, 'x', 'x')
         p_ = T.exp(exponent_).sum(axis=2).squeeze().T
         p_ = p_ / (1 + p_)  * (1-1e-8) + 1e-8 # apply logistic function to log p_ and add a bit of offset for numerical stability
-        # p = th.function([U_, W_, beta_, b_], p)
         return p_, U_, W_, beta_, b_
 
     def build_crossentropy(self):
@@ -127,7 +118,7 @@ class Stack:
         p_, U_, W_, beta_, b_ = self._build_probability_map()
 
         loglik_ = Y_ * T.log(p_) + (1 - Y_) * T.log(1 - p_)
-        cross_entropy_ = -T.mean(loglik_) # + .01*np.abs(U_).mean() + .01*np.abs(W_).mean()
+        cross_entropy_ = -T.mean(loglik_) #+ 0.01*(np.abs(U_).mean() + np.abs(W_).mean())
         dcross_entropy_ = T.grad(cross_entropy_, [U_, W_, beta_, b_])
 
         return th.function([U_, W_, beta_, b_], cross_entropy_), th.function([U_, W_, beta_, b_], dcross_entropy_)
@@ -197,5 +188,5 @@ class Stack:
 
 if __name__ == "__main__":
     s = Stack('data/sanity.hdf5', (3, 3, 3), preprocessor=lambda x: x, quadratic_channels=1, linear_channels=1)
-    # s.fit()
+    s.fit()
     s.visualize()
