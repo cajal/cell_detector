@@ -31,13 +31,16 @@ class Stack:
 
     """
 
-    def __init__(self, stack, voxel):
+    def __init__(self, stack, voxel, linear_channels=2, quadratic_channels=2, preprocessor=preprocess):
 
+        self.preprocessor = preprocessor
         self.load(stack)
 
         if np.any(np.array(voxel) % 2 == 0):
             raise ValueError("Voxel size should be odd.")
         self.voxel = voxel
+        self.linear_channels = linear_channels
+        self.quadratic_channels = quadratic_channels
 
     def load(self, stackfile):
         if not isinstance(stackfile, str):
@@ -46,8 +49,9 @@ class Stack:
         else:
             with h5py.File(stackfile, 'r') as fid:
                 self.stack = np.asarray(fid['stack'])
-                X = preprocess(np.asarray(fid['stack']))
-                X = np.concatenate((X, 0 * X[..., 0][..., None]), axis=-1).squeeze()
+
+                X = self.preprocessor(np.asarray(fid['stack'])).squeeze()
+                # X = np.concatenate((X, 0 * X[..., 0][..., None]), axis=-1).squeeze()
                 self.X = X
                 self.cells = np.asarray(fid['cells']) if 'cells' in fid else None
                 self.P = np.asarray(fid['P']) if 'P' in fid else np.nan * np.empty(X.shape[:3])
@@ -62,15 +66,15 @@ class Stack:
 
     def _build_probability_map(self):
 
-        X = self.X[..., :-1].mean(axis=-1)[None, ..., None]  # batch, x, y, z, channels
+        X = self.X.mean(axis=-1)[None, ..., None]  # batch, x, y, z, channels
+
         _, in_width, in_height, in_time, _ = X.shape
         X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
 
         batchsize = 1
         in_channels = 1
 
-        linear_channels = 5
-        quadratic_channels = 2
+        linear_channels, quadratic_channels = self.linear_channels, self.quadratic_channels
         flt_width, flt_height, flt_time = self.voxel
 
         U_ = tensor5()  # quadratic filter
@@ -113,25 +117,26 @@ class Stack:
         cross_entropy_ = -T.mean(loglik_)
         dcross_entropy_ = T.grad(cross_entropy_, [U_, W_, beta_, b_])
 
-        # i, j, k = [v // 2 for v in self.voxel]
-        # X = self.X
+        i, j, k = [v // 2 for v in self.voxel]
+
+        X = self.X
         # X[i:-i, j:-j, k:-k, 0] = Y
-        # # X[i-1:, j-1:, k-1:, 0] = Y
-        # fig, ax = plt.subplots()
-        # plt.ion()
-        # plt.show()
-        # for z in range(X.shape[2]):
-        #     ax.imshow(X[..., z, :], cmap=plt.cm.gray)
-        #     ax.axis('tight')
-        #     plt.draw()
-        #     input()
-        #     ax.clear()
+        # X[i-1:, j-1:, k-1:, 0] = Y
+        fig, ax = plt.subplots()
+        plt.ion()
+        plt.show()
+        for z in range(X.shape[2]):
+            ax.imshow(X[..., z, 0], cmap=plt.cm.gray, interpolation='nearest')
+            ax.axis('tight')
+            plt.draw()
+            input()
+            ax.clear()
 
         return th.function([U_, W_, beta_, b_], cross_entropy_), th.function([U_, W_, beta_, b_], dcross_entropy_)
 
 
 if __name__ == "__main__":
-    s = Stack('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', (5, 5, 3))
+    s = Stack('data/sanity.hdf5', (3, 3, 3), preprocessor=lambda x: x)
     # s.build_probability_map()
     s.build_crossentropy()
     # @property
