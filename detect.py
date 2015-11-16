@@ -2,7 +2,7 @@ import argparse
 import pickle
 import numpy as np
 import h5py
-from stack import Stack
+from bernoulli import BernoulliProcess
 from Classifiers import Detector
 from utils import preprocess
 from scipy import io
@@ -40,7 +40,7 @@ if __name__ == '__main__':
     with open(args.detector, 'rb') as fid:
         det = pickle.load(fid)
 
-    stk = Stack(X, det.voxel)
+    stk = BernoulliProcess(X, det.voxel)
 
     cells, prob = stk.detect_cells(det, args.stride, args.prob, n_jobs=args.jobs)
     print('Found %i cells' % (len(cells)))
