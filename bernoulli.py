@@ -181,18 +181,7 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         self.parameters['b'] = np.random.randn(linear_channels)
 
     def _build_probability_map(self, X):
-        # ----------------------------------
-        # TODO: Remove this later
-        from IPython import embed
-        embed()
-        exit()
-        # ----------------------------------
-
-
-        # input: (batch size, channels, rows, columns)
-        # filters: (number of filters, channels, rows, columns)
-
-        X = X[None, ..., None]  # batch, x, y, z, channels
+        X = X[None, ..., None]
         _, in_width, in_height, in_depth, _ = X.shape
         X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
 
@@ -200,10 +189,61 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         linear_channels, quadratic_channels = self.linear_channels, self.quadratic_channels
         flt_width, flt_height, flt_depth = self.voxel
 
-        U_ = tensor5()  # quadratic filter
-        W_ = tensor5()  # linear filter
-        b_ = T.dvector()  # bias
-        beta_ = T.dmatrix()
+        Uxy_ = tensor5()
+        Uz_ = tensor5()
+
+        quadratic_xy_ = T.nnet.conv3d2d.conv3d(
+            signals=X_.dimshuffle(0, 3, 4, 2, 1),
+            filters=Uxy_.dimshuffle(0, 3, 4, 2, 1),
+            signals_shape=(batchsize, in_depth, in_channels, in_height, in_width),
+            filters_shape=(quadratic_channels, 1, in_channels, flt_height, flt_width),
+            border_mode='valid')
+
+        quadratic_z_, _ = theano.scan(
+            lambda v, f: T.nnet.conv3d2d.conv3d(
+                            signals=v,
+                            filters=f,
+                            signals_shape=(batchsize, in_depth, in_channels,
+                                       in_height - flt_height+1, in_width- flt_width+1),
+                            filters_shape=(quadratic_channels, flt_depth, in_channels, 1, 1),
+                            border_mode='valid').squeeze(),
+                sequences=[quadratic_xy_.dimshuffle(2, 1, 0, 3, 4), Uz_.dimshuffle(0, 3, 4, 2, 1)])
+
+        # quadratic_z_ = T.nnet.conv3d2d.conv3d(
+        #     signals=quadratic_xy_,
+        #     filters=Uz_.dimshuffle(0, 3, 4, 2, 1),
+        #     signals_shape=(batchsize, in_depth, quadratic_channels,
+        #                    in_height - flt_height+1, in_width- flt_width+1),
+        #     filters_shape=(quadratic_channels, flt_depth, quadratic_channels, 1, 1),
+        #     border_mode='valid')
+        # ----------------------------------
+        # TODO: Remove this later
+        from IPython import embed
+        embed()
+        exit()
+        # ----------------------------------
+
+        quadratic_z_ = quadratic_xy_.dimshuffle(1, 2, 3, 0).reshape(
+            (quadratic_channels * in_width, in_height, in_depth))
+
+        # quadratic_z_ = T.nnet.conv2d(
+        #     input=quadratic_xy_.dimshuffle(1, 2, 3, 0),  # (batch size, stack size, nb row, nb col)
+        #     filters=Uz_.dimshuffle(0, 1, 3, 2),  # nb filters, stack size, nb row, nb col
+        # )  # output will be (47, 1, 28, 48)
+
+        # ----------------------------------
+        # TODO: Remove this later
+        from IPython import embed
+        embed()
+        exit()
+        # ----------------------------------
+        # quadr_filter_ = quadratic_z_.dimshuffle()
+        # quadr_filter_ = T.tensordot(quadr_filter_ ** 2, beta_, (2, 1)).dimshuffle(0, 1, 4, 2, 3)
+
+        # _ = T.tensor4('quadratic_filter', dtype=floatX)  # quadratic filter
+        # W_ = tensor5()  # linear filter
+        # b_ = T.dvector()  # bias
+        # beta_ = T.dmatrix()
 
         linear_filter_ = T.nnet.conv3d2d.conv3d(
             signals=X_.dimshuffle(0, 3, 4, 2, 1),
@@ -218,8 +258,6 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
             signals_shape=(batchsize, in_depth, in_channels, in_height, in_width),
             filters_shape=(quadratic_channels, flt_depth, in_channels, flt_height, flt_width),
             border_mode='valid')
-
-        quadr_filter_ = T.tensordot(quadr_filter_ ** 2, beta_, (2, 1)).dimshuffle(0, 1, 4, 2, 3)
 
         exponent_ = quadr_filter_ + linear_filter_ + b_.dimshuffle('x', 'x', 0, 'x', 'x')
         p_ = T.exp(exponent_).sum(axis=2).squeeze().T

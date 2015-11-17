@@ -47,6 +47,6 @@ if __name__ == "__main__":
     s = Stack('data/sanity.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
     s_test = Stack('data/sanity_test.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
 
-    b = RankDegenerateBernoulliProcess( (3, 3, 3), quadratic_channels=1, linear_channels=1)
+    b = RankDegenerateBernoulliProcess( (3, 3, 3), quadratic_channels=2, linear_channels=3)
     b.fit(s.X, s.cells)
     b.visualize(s_test.X, s_test.cells)

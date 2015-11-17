@@ -1,7 +1,7 @@
 import datajoint as dj
 from stack import Stack
 from bernoulli import FullBernoulliProcess
-
+from utils import preprocess
 schema = dj.schema('datajoint_aod_cell_detection', locals())
 
 
@@ -17,7 +17,9 @@ class TrainingFiles(dj.Lookup):
     vz          : int # z voxel size
     """
 
-    contents = [('data/sanity.hdf5', 3, 3, 3)]
+    contents = [
+        ('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', 17, 17, 15)
+    ]
 
 
 @schema
@@ -34,10 +36,10 @@ class ComponentNumbers(dj.Lookup):
     @property
     def contents(self):
         yield from zip(range(1, 6), range(1, 6))
-        
+
+
 @schema
 class Repetitions(dj.Lookup):
-
     definition = """
     # multiple repetitions for fitting
     
@@ -45,10 +47,11 @@ class Repetitions(dj.Lookup):
     ---
     
     """
-    
+
     @property
     def contents(self):
         yield from zip(range(5))
+
 
 @schema
 class TrainedFullBernoulliProcess(dj.Computed):
@@ -68,8 +71,8 @@ class TrainedFullBernoulliProcess(dj.Computed):
     """
 
     def _make_tuples(self, key):
-        s = Stack(key['file_name'], preprocessor=lambda x: x.mean(axis=-1).squeeze())
-        voxel = (TrainingFiles() & key).fetch1['vx','vy','vz']
+        s = Stack(key['file_name'], preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
+        voxel = (TrainingFiles() & key).fetch1['vx', 'vy', 'vz']
         b = FullBernoulliProcess(voxel,
                                  quadratic_channels=key['quadratic_components'],
                                  linear_channels=key['linear_components'])
