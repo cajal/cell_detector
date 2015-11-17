@@ -5,7 +5,7 @@ import h5py
 import numpy as np
 
 from Classifiers import Detector
-from bernoulli import BernoulliProcess
+from bernoulli import FullBernoulliProcess
 from utils import preprocess
 
 
@@ -57,7 +57,7 @@ if __name__ == '__main__':
     voxel = tuple(int(e) for e in args.voxel.split(','))
     for v in voxel:
         assert v % 2 == 1, 'Voxel side lengths must be odd'
-    stk = BernoulliProcess(X, voxel)
+    stk = FullBernoulliProcess(X, voxel)
 
 
     # --- set voxel size and stride

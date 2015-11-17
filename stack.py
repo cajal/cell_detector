@@ -1,4 +1,4 @@
-from bernoulli import BernoulliProcess
+from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
 from utils import preprocess
 import h5py
 import numpy as np
@@ -42,7 +42,11 @@ class Stack:
 
 
 if __name__ == "__main__":
-    s = Stack('data/sanity.hdf5', preprocessor=lambda x: x.mean(axis=-1))
-    b = BernoulliProcess( (3, 3, 3), quadratic_channels=1, linear_channels=1)
+    # s = Stack('data/smaller.hdf5', preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
+    # b = FullBernoulliProcess((9, 9, 7), quadratic_channels=3, linear_channels=3)
+    s = Stack('data/sanity.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
+    s_test = Stack('data/sanity_test.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
+
+    b = RankDegenerateBernoulliProcess( (3, 3, 3), quadratic_channels=1, linear_channels=1)
     b.fit(s.X, s.cells)
-    b.visualize(s.X, s.cells)
+    b.visualize(s_test.X, s_test.cells)

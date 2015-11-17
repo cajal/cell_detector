@@ -2,7 +2,7 @@ import argparse
 from matplotlib import pyplot as plt
 from scipy import io
 import numpy as np
-from bernoulli import BernoulliProcess
+from bernoulli import FullBernoulliProcess
 from utils import preprocess
 import h5py
 
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     voxel = tuple(int(e) for e in args.voxel.split(','))
     for v in voxel:
         assert v % 2 == 1, 'Voxel side lengths must be odd'
-    stk = BernoulliProcess(X, voxel)
+    stk = FullBernoulliProcess(X, voxel)
     stk.explore(p.copy())
 
 
