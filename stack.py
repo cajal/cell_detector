@@ -44,9 +44,16 @@ class Stack:
 if __name__ == "__main__":
     # s = Stack('data/smaller.hdf5', preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
     # b = FullBernoulliProcess((9, 9, 7), quadratic_channels=3, linear_channels=3)
-    s = Stack('data/sanity.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
-    s_test = Stack('data/sanity_test.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
+    # s = Stack('data/sanity.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
+    # s_test = Stack('data/sanity_test.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
 
-    b = RankDegenerateBernoulliProcess( (3, 3, 3), quadratic_channels=2, linear_channels=3)
+    # b = RankDegenerateBernoulliProcess( (3,3,3), quadratic_channels=10, linear_channels=10)
+    # b.fit(s.X, s.cells)
+    # b.visualize(s_test.X, s_test.cells)
+    s = Stack('data/smaller.hdf5', preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
+    b = RankDegenerateBernoulliProcess( (9,9,7), quadratic_channels=10, linear_channels=10)
+    # s = Stack('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5',
+    #           preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
+    # b = RankDegenerateBernoulliProcess( (17,17,15), quadratic_channels=10, linear_channels=10)
     b.fit(s.X, s.cells)
-    b.visualize(s_test.X, s_test.cells)
+    b.visualize(s.X, s.cells)

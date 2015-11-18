@@ -120,6 +120,8 @@ class FullBernoulliProcess(BernoulliProcess):
         self.parameters['beta'] = np.random.randn(linear_channels, quadratic_channels)
         self.parameters['b'] = np.random.randn(linear_channels)
 
+
+
     def _build_probability_map(self, X):
         X = X[None, ..., None]  # batch, x, y, z, channels
         _, in_width, in_height, in_depth, _ = X.shape
@@ -165,102 +167,92 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         self.quadratic_channels = quadratic_channels
         flt_width, flt_height, flt_depth = self.voxel
 
-        self.parameters['Uxy'] = np.random.rand(quadratic_channels, flt_width, flt_height)
+        self.parameters['Uxy'] = np.random.rand(quadratic_channels, flt_width, flt_height, 1)
         self.parameters['Uxy'] /= self.parameters['Uxy'].size
 
-        self.parameters['Uz'] = np.random.rand(quadratic_channels, flt_depth)
+        self.parameters['Uz'] = np.random.rand(quadratic_channels, 1, flt_depth, 1)
         self.parameters['Uz'] /= self.parameters['Uz'].size
 
-        self.parameters['Wxy'] = np.random.rand(linear_channels, flt_width, flt_height)
+        self.parameters['Wxy'] = np.random.rand(linear_channels, flt_width, flt_height, 1)
         self.parameters['Wxy'] /= self.parameters['Wxy'].size
 
-        self.parameters['Wz'] = np.random.rand(linear_channels, flt_depth)
+        self.parameters['Wz'] = np.random.rand(linear_channels, 1, flt_depth, 1)
         self.parameters['Wz'] /= self.parameters['Wz'].size
 
         self.parameters['beta'] = np.random.randn(linear_channels, quadratic_channels)
         self.parameters['b'] = np.random.randn(linear_channels)
 
+        # Uxy = np.random.randn(quadratic_channels, flt_width, flt_height, in_channels)
+        # Uz = np.random.randn(quadratic_channels, 1, flt_depth, in_channels)
+        # Wxy = np.random.randn(linear_channels, flt_width, flt_height, in_channels)
+        # Wz = np.random.randn(linear_channels, 1, flt_depth, in_channels)
+        # beta = np.random.randn(linear_channels, quadratic_channels)
+        # b = np.random.randn(linear_channels)
+
+
     def _build_probability_map(self, X):
-        X = X[None, ..., None]
-        _, in_width, in_height, in_depth, _ = X.shape
+        X = X[..., None]  # row, col, depth, channel=1
+        in_width, in_height, in_depth, _ = X.shape
         X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
 
         batchsize, in_channels = 1, 1
         linear_channels, quadratic_channels = self.linear_channels, self.quadratic_channels
         flt_width, flt_height, flt_depth = self.voxel
 
-        Uxy_ = tensor5()
-        Uz_ = tensor5()
+        Uxy_ = T.tensor4('uxy', dtype=floatX)  # filters, row, col, channel
+        Uz_ = T.tensor4('uxy', dtype=floatX)  # quadratic filter
 
-        quadratic_xy_ = T.nnet.conv3d2d.conv3d(
-            signals=X_.dimshuffle(0, 3, 4, 2, 1),
-            filters=Uxy_.dimshuffle(0, 3, 4, 2, 1),
-            signals_shape=(batchsize, in_depth, in_channels, in_height, in_width),
-            filters_shape=(quadratic_channels, 1, in_channels, flt_height, flt_width),
-            border_mode='valid')
+        quadratic_xy_ = T.nnet.conv2d(
+            input=X_.dimshuffle(2, 3, 0, 1),  # (batch size, stack size, nb row, nb col)
+            filters=Uxy_.dimshuffle(0, 3, 1, 2),  # nb filters, stack size, nb row, nb col
+            border_mode='valid'
+        ).dimshuffle(1, 2, 3, 0)
 
         quadratic_z_, _ = theano.scan(
-            lambda v, f: T.nnet.conv3d2d.conv3d(
-                            signals=v,
-                            filters=f,
-                            signals_shape=(batchsize, in_depth, in_channels,
-                                       in_height - flt_height+1, in_width- flt_width+1),
-                            filters_shape=(quadratic_channels, flt_depth, in_channels, 1, 1),
-                            border_mode='valid').squeeze(),
-                sequences=[quadratic_xy_.dimshuffle(2, 1, 0, 3, 4), Uz_.dimshuffle(0, 3, 4, 2, 1)])
+            lambda v, f:
+                T.nnet.conv2d(
+                    input=v.dimshuffle(0, 'x', 1, 2),  # (batch size, stack size, nb row, nb col)
+                    filters=f.dimshuffle('x', 0, 2, 1),  # nb filters, stack size, nb row, nb col
+                    border_mode='valid'
+                ).squeeze()
+            , sequences=(quadratic_xy_, Uz_))
 
-        # quadratic_z_ = T.nnet.conv3d2d.conv3d(
-        #     signals=quadratic_xy_,
-        #     filters=Uz_.dimshuffle(0, 3, 4, 2, 1),
-        #     signals_shape=(batchsize, in_depth, quadratic_channels,
-        #                    in_height - flt_height+1, in_width- flt_width+1),
-        #     filters_shape=(quadratic_channels, flt_depth, quadratic_channels, 1, 1),
-        #     border_mode='valid')
-        # ----------------------------------
-        # TODO: Remove this later
-        from IPython import embed
-        embed()
-        exit()
-        # ----------------------------------
 
-        quadratic_z_ = quadratic_xy_.dimshuffle(1, 2, 3, 0).reshape(
-            (quadratic_channels * in_width, in_height, in_depth))
+        Wxy_ = T.tensor4('wxy', dtype=floatX)  # filters, row, col, channel
+        Wz_ = T.tensor4('wxy', dtype=floatX)  # quadratic filter
 
-        # quadratic_z_ = T.nnet.conv2d(
-        #     input=quadratic_xy_.dimshuffle(1, 2, 3, 0),  # (batch size, stack size, nb row, nb col)
-        #     filters=Uz_.dimshuffle(0, 1, 3, 2),  # nb filters, stack size, nb row, nb col
-        # )  # output will be (47, 1, 28, 48)
+        linear_xy_ = T.nnet.conv2d(
+            input=X_.dimshuffle(2, 3, 0, 1),  # (batch size, stack size, nb row, nb col)
+            filters=Wxy_.dimshuffle(0, 3, 1, 2),  # nb filters, stack size, nb row, nb col
+            border_mode='valid'
+        ).dimshuffle(1, 2, 3, 0)
 
-        # ----------------------------------
-        # TODO: Remove this later
-        from IPython import embed
-        embed()
-        exit()
-        # ----------------------------------
-        # quadr_filter_ = quadratic_z_.dimshuffle()
-        # quadr_filter_ = T.tensordot(quadr_filter_ ** 2, beta_, (2, 1)).dimshuffle(0, 1, 4, 2, 3)
+        linear_filter_, _ = theano.scan(
+            lambda v, f:
+                T.nnet.conv2d(
+                    input=v.dimshuffle(0, 'x', 1, 2),  # (batch size, stack size, nb row, nb col)
+                    filters=f.dimshuffle('x', 0, 2, 1),  # nb filters, stack size, nb row, nb col
+                    border_mode='valid'
+                ).squeeze()
+            , sequences=(linear_xy_, Wz_))
 
-        # _ = T.tensor4('quadratic_filter', dtype=floatX)  # quadratic filter
-        # W_ = tensor5()  # linear filter
-        # b_ = T.dvector()  # bias
-        # beta_ = T.dmatrix()
+        b_ = T.dvector()  # bias
+        beta_ = T.dmatrix()
 
-        linear_filter_ = T.nnet.conv3d2d.conv3d(
-            signals=X_.dimshuffle(0, 3, 4, 2, 1),
-            filters=W_.dimshuffle(0, 3, 4, 2, 1),
-            signals_shape=(batchsize, in_depth, in_channels, in_height, in_width),
-            filters_shape=(linear_channels, flt_depth, in_channels, flt_height, flt_width),
-            border_mode='valid')
+        quadr_filter_ = T.tensordot(quadratic_z_ ** 2, beta_, (0, 1)).dimshuffle(3,0,1,2)
 
-        quadr_filter_ = T.nnet.conv3d2d.conv3d(
-            signals=X_.dimshuffle(0, 3, 4, 2, 1),
-            filters=U_.dimshuffle(0, 3, 4, 2, 1),
-            signals_shape=(batchsize, in_depth, in_channels, in_height, in_width),
-            filters_shape=(quadratic_channels, flt_depth, in_channels, flt_height, flt_width),
-            border_mode='valid')
+        Uxy = np.random.randn(quadratic_channels, flt_width, flt_height, in_channels)
+        Uz = np.random.randn(quadratic_channels, 1, flt_depth, in_channels)
+        Wxy = np.random.randn(linear_channels, flt_width, flt_height, in_channels)
+        Wz = np.random.randn(linear_channels, 1, flt_depth, in_channels)
+        beta = np.random.randn(linear_channels, quadratic_channels)
+        b = np.random.randn(linear_channels)
 
-        exponent_ = quadr_filter_ + linear_filter_ + b_.dimshuffle('x', 'x', 0, 'x', 'x')
-        p_ = T.exp(exponent_).sum(axis=2).squeeze().T
+        exponent_ = quadr_filter_ + linear_filter_ + b_.dimshuffle(0, 'x', 'x', 'x')
+
+
+        p_ = T.exp(exponent_).sum(axis=0)
         p_ = p_ / (1 + p_) * (
             1 - 1e-8) + 1e-8  # apply logistic function to log p_ and add a bit of offset for numerical stability
-        return p_, (U_, W_, beta_, b_)
+
+        return p_, (Uxy_, Uz_, Wxy_, Wz_, beta_, b_)
