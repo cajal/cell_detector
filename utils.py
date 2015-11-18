@@ -20,8 +20,9 @@ def preprocess(X):
         convolve1d(lp, h, axis=i, output=lp)
     X = X - lp
 
-    # return (X - X.min()) / (X.max() - X.min())
+    # # return (X - X.min()) / (X.max() - X.min())
     return histeq(X, 500)
+
 
 
 def histeq(x, bins=500):
@@ -31,7 +32,7 @@ def histeq(x, bins=500):
     cdf /= cdf[-1]  # normalize
     # use linear interpolation of cdf to find new pixel values
     # out = np.interp(x.ravel(), edges[:-1], cdf)
-    target = stats.beta.ppf(cdf, .9, 10)
+    target = stats.beta.ppf(cdf, .9, 20)
     out = np.interp(x.ravel(), edges[:-1], target)
 
     return out.reshape(x.shape)

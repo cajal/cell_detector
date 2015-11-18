@@ -24,6 +24,7 @@ class BernoulliProcess:
     def _build_crossentropy(self, X, cell_locations):
         y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))
         Y = np.zeros(y_shape)
+
         cell_locs = cell_locations - np.array([v // 2 for v in self.voxel])
         i, j, k = cell_locs.T
         Y[i, j, k] = 1
@@ -51,17 +52,22 @@ class BernoulliProcess:
 
         i, j, k = [v // 2 for v in self.voxel]
 
-        X = np.stack([X, X, 0 * X], axis=3)
+        X = np.stack([0*X, X, X], axis=3)
 
-        X[i:-i, j:-j, k:-k, -1] = P
-        X[i:-i, j:-j, k:-k, 1] = Y
+        # X[i:-i, j:-j, k:-k, -1] = P
+        X[i:-i, j:-j, k:-k, 0] = Y
+        X0 = 0*X
+        X0[i:-i, j:-j, k:-k, 0] = P
+        X0[i:-i, j:-j, k:-k, 1] = P
+        X0[i:-i, j:-j, k:-k, 2] = P
+        print(P.min(), P.max())
 
-        fig, ax = plt.subplots(2, 1)
+        fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
         plt.ion()
         plt.show()
         for z in range(X.shape[2]):
-            ax[0].imshow(X[..., z, :], cmap=plt.cm.gray, interpolation='nearest')
-            ax[1].imshow(X[..., z, -1], cmap=plt.cm.gray, interpolation='nearest')
+            ax[0].imshow(X[..., z, :], cmap=plt.cm.gray, interpolation='nearest', )
+            ax[1].imshow(X0[..., z, :], cmap=plt.cm.gray, interpolation='nearest')
             ax[0].axis('tight')
             ax[1].axis('tight')
             plt.draw()
@@ -73,7 +79,7 @@ class BernoulliProcess:
         ce, _ = self._build_crossentropy(X, cell_locations)
         return ce(*self.parameters.values()) / np.log(2)
 
-    def fit(self, X, cell_locations):
+    def fit(self, X, cell_locations, **options):
         ll, dll = self._build_crossentropy(X, cell_locations)
         slices, shapes = [], []
         i = 0
@@ -99,7 +105,7 @@ class BernoulliProcess:
 
         x0 = ravel(self.parameters.values())
 
-        opt_results = minimize(obj, x0, jac=dobj, method='BFGS', callback=callback)
+        opt_results = minimize(obj, x0, jac=dobj, method='BFGS', callback=callback, options=options)
         for k, param in zip(self.parameters, unravel(opt_results.x)):
             self.parameters[k] = param
 
@@ -189,32 +195,27 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
 
 
 
-    def _build_probability_map(self, X):
-
-        X = X[..., None]  # row, col, depth, channels=1
-        in_width, in_height, in_depth, _ = X.shape
-        X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
-
+    def _build_separable_convolution(self, no_of_filters, X_, in_shape):
+        Vxy_ = T.tensor4(dtype=floatX)  # filters, row, col, channel
+        Vz_ = T.tensor4(dtype=floatX)  # quadratic filter
 
         batchsize, in_channels = 1, 1
-        linear_channels, quadratic_channels = self.linear_channels, self.quadratic_channels
+        in_width, in_height, in_depth, _ = in_shape
         flt_row, flt_col, flt_depth = self.voxel
 
-        Uxy_ = T.tensor4('uxy', dtype=floatX)  # filters, row, col, channel
-        Uz_ = T.tensor4('uz', dtype=floatX)  # quadratic filter
 
         # X is row, col, depth, channel
-        quadratic_xy_ = T.nnet.conv2d(
+        xy_ = T.nnet.conv2d(
             # expects (batch size, channels, row, col), transform in to (depth, 1, row, col)
             input=X_.dimshuffle(2, 3, 0, 1),
             # expects nb filters, channels, nb row, nb col
-            filters=Uxy_.dimshuffle(0, 3, 1, 2),
-            filter_shape=(quadratic_channels, in_channels, flt_row, flt_col),
+            filters=Vxy_.dimshuffle(0, 3, 1, 2),
+            filter_shape=(no_of_filters, in_channels, flt_row, flt_col),
             image_shape=(in_depth, in_channels, in_width, in_height),
             border_mode='valid'
         ).dimshuffle(1, 2, 3, 0) # the output is shaped (filters, row, col, depth)
 
-        quadratic_z_, _ = theano.scan(
+        retval_, _ = theano.map(
             lambda v, f:
                 T.nnet.conv2d(
                     # v is (row, col, depth) and well make it
@@ -227,34 +228,19 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
                     filter_shape=(1, 1, in_channels, flt_depth),
                     border_mode='valid'
                 ).squeeze()
-            , sequences=(quadratic_xy_, Uz_))
+            , sequences=(xy_, Vz_))
+        return retval_, (Vxy_, Vz_)
 
 
-        Wxy_ = T.tensor4('wxy', dtype=floatX)  # filters, row, col, channel
-        Wz_ = T.tensor4('wxy', dtype=floatX)  # quadratic filter
+    def _build_probability_map(self, X):
 
-        linear_xy_ = T.nnet.conv2d(
-            input=X_.dimshuffle(2, 3, 0, 1),  # (batch size, stack size, nb row, nb col)
-            filters=Wxy_.dimshuffle(0, 3, 1, 2),  # nb filters, stack size, nb row, nb col
-            filter_shape=(linear_channels, in_channels, flt_row, flt_col),
-            image_shape=(in_depth, in_channels, in_width, in_height),
-            border_mode='valid'
-        ).dimshuffle(1, 2, 3, 0)
+        X = X[..., None]  # row, col, depth, channels=1
+        X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
 
-        linear_filter_, _ = theano.scan(
-            lambda v, f:
-                T.nnet.conv2d(
-                    # v is (row, col, depth) and well make it
-                    # (row, 1, col, depth) = (batch size, stack size, nb row, nb col)
-                    input=v.dimshuffle(0, 'x', 1, 2),  # (batch size, stack size, nb row, nb col)
-                    # f is (1, flt_depth, in_channels=1) and we'll make it
-                    # (1, 1, in_channels, flt_depth) =  (nb filters, stack size, nb row, nb col)
-                    filters=f.dimshuffle('x', 0, 2, 1),  # nb filters, stack size, nb row, nb col
-                    image_shape=(in_width - flt_row + 1, 1, in_height - flt_col + 1, in_depth),
-                    filter_shape=(1, 1, in_channels, flt_depth),
-                    border_mode='valid'
-                ).squeeze()
-            , sequences=(linear_xy_, Wz_))
+        linear_channels, quadratic_channels = self.linear_channels, self.quadratic_channels
+
+        quadratic_z_, (Uxy_, Uz_) = self._build_separable_convolution(quadratic_channels, X_, X.shape)
+        linear_filter_, (Wxy_, Wz_) = self._build_separable_convolution(linear_channels, X_, X.shape)
 
         b_ = T.dvector()  # bias
         beta_ = T.dmatrix()
