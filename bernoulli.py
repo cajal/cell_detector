@@ -167,52 +167,64 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         self.quadratic_channels = quadratic_channels
         flt_width, flt_height, flt_depth = self.voxel
 
+        # horizontal components of the filters
         self.parameters['Uxy'] = np.random.rand(quadratic_channels, flt_width, flt_height, 1)
         self.parameters['Uxy'] /= self.parameters['Uxy'].size
 
+        # certial components of the filters
         self.parameters['Uz'] = np.random.rand(quadratic_channels, 1, flt_depth, 1)
         self.parameters['Uz'] /= self.parameters['Uz'].size
 
+        # horizontal components of the filters
         self.parameters['Wxy'] = np.random.rand(linear_channels, flt_width, flt_height, 1)
         self.parameters['Wxy'] /= self.parameters['Wxy'].size
 
+        # vertical components of the filters
         self.parameters['Wz'] = np.random.rand(linear_channels, 1, flt_depth, 1)
         self.parameters['Wz'] /= self.parameters['Wz'].size
+
 
         self.parameters['beta'] = np.random.randn(linear_channels, quadratic_channels)
         self.parameters['b'] = np.random.randn(linear_channels)
 
-        # Uxy = np.random.randn(quadratic_channels, flt_width, flt_height, in_channels)
-        # Uz = np.random.randn(quadratic_channels, 1, flt_depth, in_channels)
-        # Wxy = np.random.randn(linear_channels, flt_width, flt_height, in_channels)
-        # Wz = np.random.randn(linear_channels, 1, flt_depth, in_channels)
-        # beta = np.random.randn(linear_channels, quadratic_channels)
-        # b = np.random.randn(linear_channels)
 
 
     def _build_probability_map(self, X):
-        X = X[..., None]  # row, col, depth, channel=1
+
+        X = X[..., None]  # row, col, depth, channels=1
         in_width, in_height, in_depth, _ = X.shape
         X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
 
+
         batchsize, in_channels = 1, 1
         linear_channels, quadratic_channels = self.linear_channels, self.quadratic_channels
-        flt_width, flt_height, flt_depth = self.voxel
+        flt_row, flt_col, flt_depth = self.voxel
 
         Uxy_ = T.tensor4('uxy', dtype=floatX)  # filters, row, col, channel
-        Uz_ = T.tensor4('uxy', dtype=floatX)  # quadratic filter
+        Uz_ = T.tensor4('uz', dtype=floatX)  # quadratic filter
 
+        # X is row, col, depth, channel
         quadratic_xy_ = T.nnet.conv2d(
-            input=X_.dimshuffle(2, 3, 0, 1),  # (batch size, stack size, nb row, nb col)
-            filters=Uxy_.dimshuffle(0, 3, 1, 2),  # nb filters, stack size, nb row, nb col
+            # expects (batch size, channels, row, col), transform in to (depth, 1, row, col)
+            input=X_.dimshuffle(2, 3, 0, 1),
+            # expects nb filters, channels, nb row, nb col
+            filters=Uxy_.dimshuffle(0, 3, 1, 2),
+            filter_shape=(quadratic_channels, in_channels, flt_row, flt_col),
+            image_shape=(in_depth, in_channels, in_width, in_height),
             border_mode='valid'
-        ).dimshuffle(1, 2, 3, 0)
+        ).dimshuffle(1, 2, 3, 0) # the output is shaped (filters, row, col, depth)
 
         quadratic_z_, _ = theano.scan(
             lambda v, f:
                 T.nnet.conv2d(
-                    input=v.dimshuffle(0, 'x', 1, 2),  # (batch size, stack size, nb row, nb col)
+                    # v is (row, col, depth) and well make it
+                    # (row, 1, col, depth) = (batch size, stack size, nb row, nb col)
+                    input=v.dimshuffle(0, 'x', 1, 2),
+                    # f is (1, flt_depth, in_channels=1) and we'll make it
+                    # (1, 1, in_channels, flt_depth) =  (nb filters, stack size, nb row, nb col)
                     filters=f.dimshuffle('x', 0, 2, 1),  # nb filters, stack size, nb row, nb col
+                    image_shape=(in_width - flt_row + 1, 1, in_height - flt_col + 1, in_depth),
+                    filter_shape=(1, 1, in_channels, flt_depth),
                     border_mode='valid'
                 ).squeeze()
             , sequences=(quadratic_xy_, Uz_))
@@ -224,14 +236,22 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         linear_xy_ = T.nnet.conv2d(
             input=X_.dimshuffle(2, 3, 0, 1),  # (batch size, stack size, nb row, nb col)
             filters=Wxy_.dimshuffle(0, 3, 1, 2),  # nb filters, stack size, nb row, nb col
+            filter_shape=(linear_channels, in_channels, flt_row, flt_col),
+            image_shape=(in_depth, in_channels, in_width, in_height),
             border_mode='valid'
         ).dimshuffle(1, 2, 3, 0)
 
         linear_filter_, _ = theano.scan(
             lambda v, f:
                 T.nnet.conv2d(
+                    # v is (row, col, depth) and well make it
+                    # (row, 1, col, depth) = (batch size, stack size, nb row, nb col)
                     input=v.dimshuffle(0, 'x', 1, 2),  # (batch size, stack size, nb row, nb col)
+                    # f is (1, flt_depth, in_channels=1) and we'll make it
+                    # (1, 1, in_channels, flt_depth) =  (nb filters, stack size, nb row, nb col)
                     filters=f.dimshuffle('x', 0, 2, 1),  # nb filters, stack size, nb row, nb col
+                    image_shape=(in_width - flt_row + 1, 1, in_height - flt_col + 1, in_depth),
+                    filter_shape=(1, 1, in_channels, flt_depth),
                     border_mode='valid'
                 ).squeeze()
             , sequences=(linear_xy_, Wz_))
@@ -241,12 +261,12 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
 
         quadr_filter_ = T.tensordot(quadratic_z_ ** 2, beta_, (0, 1)).dimshuffle(3,0,1,2)
 
-        Uxy = np.random.randn(quadratic_channels, flt_width, flt_height, in_channels)
-        Uz = np.random.randn(quadratic_channels, 1, flt_depth, in_channels)
-        Wxy = np.random.randn(linear_channels, flt_width, flt_height, in_channels)
-        Wz = np.random.randn(linear_channels, 1, flt_depth, in_channels)
-        beta = np.random.randn(linear_channels, quadratic_channels)
-        b = np.random.randn(linear_channels)
+        # Uxy = np.random.randn(quadratic_channels, flt_row, flt_col, in_channels)
+        # Uz = np.random.randn(quadratic_channels, 1, flt_depth, in_channels)
+        # Wxy = np.random.randn(linear_channels, flt_row, flt_col, in_channels)
+        # Wz = np.random.randn(linear_channels, 1, flt_depth, in_channels)
+        # beta = np.random.randn(linear_channels, quadratic_channels)
+        # b = np.random.randn(linear_channels)
 
         exponent_ = quadr_filter_ + linear_filter_ + b_.dimshuffle(0, 'x', 'x', 'x')
 
