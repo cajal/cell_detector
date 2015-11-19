@@ -38,7 +38,7 @@ class ComponentNumbers(dj.Lookup):
 
     @property
     def contents(self):
-        yield from zip(range(1, 6), range(1, 6), itertools.repeat(10))
+        yield from zip(range(1, 10), range(1, 10), itertools.repeat(10))
 
 
 @schema
