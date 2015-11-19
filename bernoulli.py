@@ -177,20 +177,20 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         flt_width, flt_height, flt_depth = self.voxel
 
         # horizontal components of the filters
-        self.parameters['Uxy'] = np.random.rand(quadratic_channels, flt_width, flt_height, 1)
-        self.parameters['Uxy'] /= self.parameters['Uxy'].size
+        self.parameters['u_xy'] = np.random.rand(quadratic_channels, flt_width, flt_height, 1)
+        self.parameters['u_xy'] /= self.parameters['u_xy'].size
 
         # certial components of the filters
-        self.parameters['Uz'] = np.random.rand(quadratic_channels, 1, flt_depth, 1)
-        self.parameters['Uz'] /= self.parameters['Uz'].size
+        self.parameters['u_z'] = np.random.rand(quadratic_channels, 1, flt_depth, 1)
+        self.parameters['u_z'] /= self.parameters['u_z'].size
 
         # horizontal components of the filters
-        self.parameters['Wxy'] = np.random.rand(linear_channels, flt_width, flt_height, 1)
-        self.parameters['Wxy'] /= self.parameters['Wxy'].size
+        self.parameters['w_xy'] = np.random.rand(linear_channels, flt_width, flt_height, 1)
+        self.parameters['w_xy'] /= self.parameters['w_xy'].size
 
         # vertical components of the filters
-        self.parameters['Wz'] = np.random.rand(linear_channels, 1, flt_depth, 1)
-        self.parameters['Wz'] /= self.parameters['Wz'].size
+        self.parameters['w_z'] = np.random.rand(linear_channels, 1, flt_depth, 1)
+        self.parameters['w_z'] /= self.parameters['w_z'].size
 
 
         self.parameters['beta'] = np.random.randn(common_channels, quadratic_channels)
@@ -241,7 +241,6 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
 
         linear_channels, quadratic_channels, common_channels = \
-
             self.linear_channels, self.quadratic_channels, self.common_channels
 
         quadratic_filter_, (Uxy_, Uz_) = self._build_separable_convolution(quadratic_channels, X_, X.shape)

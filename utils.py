@@ -21,7 +21,9 @@ def preprocess(X):
     X = X - lp
 
     # X =  contrast_normalize(X.squeeze())
-    # # return (X - X.min()) / (X.max() - X.min())
+    # X = (X - X.min()) / (X.max() - X.min())
+    # X -= X.min()
+    #return X
     return histeq(X, 500)
 
 

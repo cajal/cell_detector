@@ -7,7 +7,7 @@ from pprint import pprint
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 
-plot_params = dict(cmap=plt.cm.gray)
+plot_params = dict(cmap=plt.cm.gray, vmin=0, vmax=1)
 
 
 class CellLabeler:
@@ -17,7 +17,7 @@ class CellLabeler:
         self.cells = stack.cells
         self.cut = OrderedDict(zip(['row', 'col', 'depth'], [0, 0, 0]))
         self.cell_idx = 0
-        fig = plt.figure()
+        fig = plt.figure(facecolor='w')
         gs = plt.GridSpec(3, 5)
         ax = dict()
         ax['depth'] = fig.add_subplot(gs[1:3, :2])
@@ -111,12 +111,18 @@ class CellLabeler:
                 self.cell_idx = min(len(self.cells) - 1, self.cell_idx + 1)
             for k, i in zip(self.cut, self.cells[self.cell_idx, :]):
                 self.cut[k] = i
-            self.replot()
         if event.key == 's':
             fname = input('Please enter filename:')
             print('Saving')
             self.stack.cells = self.cells
             self.stack.save(fname)
+            self.fig.suptitle('File saved to %s' % (fname, ))
+        if event.key == 'a':
+            new_cell = np.asarray(list(self.cut.values()), dtype=int)
+            print('Adding new cell at', new_cell)
+            self.cells = np.vstack((self.cells, new_cell))
+            self.fig.suptitle('New cell added')
+        self.replot()
 
 
     def on_press(self, event):
