@@ -104,8 +104,10 @@ class BernoulliProcess:
             print('Cross entropy:', obj(x))
 
         x0 = ravel(self.parameters.values())
-
-        opt_results = minimize(obj, x0, jac=dobj, method='BFGS', callback=callback, options=options)
+        # todo find a better way than to box constrain the parameters
+        opt_results = minimize(obj, x0, jac=dobj, method='L-BFGS-B', callback=callback,
+                               bounds = list(zip(-1000*np.ones(len(x0)), 1000*np.ones(len(x0)))),
+                               options=options)
         for k, param in zip(self.parameters, unravel(opt_results.x)):
             self.parameters[k] = param
 
@@ -166,11 +168,12 @@ class FullBernoulliProcess(BernoulliProcess):
 
 
 class RankDegenerateBernoulliProcess(BernoulliProcess):
-    def __init__(self, voxel, linear_channels=2, quadratic_channels=2):
+    def __init__(self, voxel, common_channels=2, linear_channels=2, quadratic_channels=2):
         super(RankDegenerateBernoulliProcess, self).__init__(voxel)
 
         self.linear_channels = linear_channels
         self.quadratic_channels = quadratic_channels
+        self.common_channels = common_channels
         flt_width, flt_height, flt_depth = self.voxel
 
         # horizontal components of the filters
@@ -190,8 +193,9 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         self.parameters['Wz'] /= self.parameters['Wz'].size
 
 
-        self.parameters['beta'] = np.random.randn(linear_channels, quadratic_channels)
-        self.parameters['b'] = np.random.randn(linear_channels)
+        self.parameters['beta'] = np.random.randn(common_channels, quadratic_channels)
+        self.parameters['gamma'] = np.random.randn(common_channels, linear_channels)
+        self.parameters['b'] = np.random.randn(common_channels)
 
 
 
@@ -232,33 +236,41 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         return retval_, (Vxy_, Vz_)
 
 
-    def _build_probability_map(self, X):
-
+    def _build_exponent(self, X):
         X = X[..., None]  # row, col, depth, channels=1
         X_ = th.shared(np.require(X, dtype=floatX), borrow=True, name='stack')
 
-        linear_channels, quadratic_channels = self.linear_channels, self.quadratic_channels
+        linear_channels, quadratic_channels, common_channels = \
 
-        quadratic_z_, (Uxy_, Uz_) = self._build_separable_convolution(quadratic_channels, X_, X.shape)
+            self.linear_channels, self.quadratic_channels, self.common_channels
+
+        quadratic_filter_, (Uxy_, Uz_) = self._build_separable_convolution(quadratic_channels, X_, X.shape)
         linear_filter_, (Wxy_, Wz_) = self._build_separable_convolution(linear_channels, X_, X.shape)
 
         b_ = T.dvector()  # bias
         beta_ = T.dmatrix()
+        gamma_ = T.dmatrix()
 
-        quadr_filter_ = T.tensordot(quadratic_z_ ** 2, beta_, (0, 1)).dimshuffle(3,0,1,2)
+        quadr_filter_ = T.tensordot(quadratic_filter_ ** 2, beta_, (0, 1)).dimshuffle(3,0,1,2)
+        lin_filter_ = T.tensordot(linear_filter_, gamma_, (0, 1)).dimshuffle(3,0,1,2)
 
         # Uxy = np.random.randn(quadratic_channels, flt_row, flt_col, in_channels)
         # Uz = np.random.randn(quadratic_channels, 1, flt_depth, in_channels)
         # Wxy = np.random.randn(linear_channels, flt_row, flt_col, in_channels)
         # Wz = np.random.randn(linear_channels, 1, flt_depth, in_channels)
-        # beta = np.random.randn(linear_channels, quadratic_channels)
+        # beta = np.random.randn(common_channels, quadratic_channels)
+        # gamma = np.random.randn(common_channels, linear_channels)
         # b = np.random.randn(linear_channels)
 
-        exponent_ = quadr_filter_ + linear_filter_ + b_.dimshuffle(0, 'x', 'x', 'x')
+        exponent_ = quadr_filter_ + lin_filter_ + b_.dimshuffle(0, 'x', 'x', 'x')
+        return exponent_, (Uxy_, Uz_, Wxy_, Wz_, beta_, gamma_,  b_)
 
+    def _build_probability_map(self, X):
+
+        exponent_, params_ = self._build_exponent(X)
 
         p_ = T.exp(exponent_).sum(axis=0)
         p_ = p_ / (1 + p_) * (
             1 - 1e-8) + 1e-8  # apply logistic function to log p_ and add a bit of offset for numerical stability
 
-        return p_, (Uxy_, Uz_, Wxy_, Wz_, beta_, b_)
+        return p_, params_
