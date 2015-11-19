@@ -4,7 +4,7 @@ from scipy import stats
 from scipy.ndimage import convolve1d
 from scipy.signal import medfilt, hamming
 
-
+from scipy.ndimage.filters import convolve1d
 
 
 
@@ -20,6 +20,7 @@ def preprocess(X):
         convolve1d(lp, h, axis=i, output=lp)
     X = X - lp
 
+    # X =  contrast_normalize(X.squeeze())
     # # return (X - X.min()) / (X.max() - X.min())
     return histeq(X, 500)
 
@@ -27,15 +28,26 @@ def preprocess(X):
 
 def histeq(x, bins=500):
     # get image histogram
+
     h, edges = np.histogram(x.ravel(), bins)
     cdf = h.cumsum().astype(float)  # cumulative distribution function
     cdf /= cdf[-1]  # normalize
     # use linear interpolation of cdf to find new pixel values
     # out = np.interp(x.ravel(), edges[:-1], cdf)
-    target = stats.beta.ppf(cdf, .9, 20)
+    target = stats.beta.ppf(cdf, .9, 5)
     out = np.interp(x.ravel(), edges[:-1], target)
 
     return out.reshape(x.shape)
+
+def contrast_normalize(X, kernelsize=(120,120,30)):
+    local_sq = X**2
+    local_mean = np.asarray(X)
+    for axis, ks in enumerate(kernelsize):
+        w = np.ones(ks)/ks
+        local_sq = convolve1d(local_sq, w, axis=axis, mode='reflect')
+        local_mean = convolve1d(local_mean, w, axis=axis, mode='reflect')
+    return X / local_sq
+
 
 
 def compute_crange(K, basefactors=2 ** np.arange(-3, 4.)):

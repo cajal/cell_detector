@@ -2,6 +2,8 @@ from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
 from utils import preprocess
 import h5py
 import numpy as np
+import os
+
 class Stack:
     """
     Class that holds an imaging stack and a voxel size.
