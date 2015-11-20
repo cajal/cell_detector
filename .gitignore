@@ -56,3 +56,4 @@ docs/_build/
 # PyBuilder
 target/
 .idea
+dj_local_conf.json
