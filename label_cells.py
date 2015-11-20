@@ -6,6 +6,7 @@ from collections import OrderedDict
 from pprint import pprint
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
+import argparse
 
 plot_params = dict(cmap=plt.cm.gray, vmin=0, vmax=1)
 
@@ -148,10 +149,19 @@ class CellLabeler:
         self.replot()
 
 
-# if event.inaxes!=self.line.axes: return
 
 
 if __name__ == "__main__":
-    s = Stack('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5',
+
+    parser = argparse.ArgumentParser(description='Manually label cells in a stack.')
+
+    parser.add_argument('file', type=str, help='hdf5 file containing the stack (dims row, col, depth, 1, channels)')
+
+    args = parser.parse_args()
+
+
+
+
+    s = Stack(args.file,
               preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
     labeler = CellLabeler(s)
