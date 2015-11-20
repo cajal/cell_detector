@@ -93,7 +93,7 @@ class TrainedRDBernoulliProcess(dj.Computed):
 
     class GitKey(dj.Part):
         definition = """
-        ->TraineRDBernoulliProcess
+        ->TrainedRDBernoulliProcess
         ---
         sha1        : varchar(40)
         branch      : varchar(50)
@@ -123,8 +123,8 @@ class TrainedRDBernoulliProcess(dj.Computed):
         key.update(b.parameters)
         key['cross_entropy'] = b.cross_entropy(s.X, s.cells)
         self.insert1(key)
-        TraineRDBernoulliProcess.GitKey().make_tuple(key_sub)
+        TrainedRDBernoulliProcess.GitKey().make_tuple(key_sub)
 
 
 if __name__ == "__main__":
-    TraineRDBernoulliProcess().populate(reserve_jobs=True)
+    TrainedRDBernoulliProcess().populate(reserve_jobs=True)
