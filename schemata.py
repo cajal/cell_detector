@@ -10,7 +10,9 @@ import itertools
 preprocessors = {
     'center_medianfilter_unsharpmask_histeq':
         lambda x: histeq(unsharp_masking(medianfilter(center(x.squeeze()))), 500).mean(axis=-1),
-    'Mean': lambda x: x.mean(axis=-1).squeeze(),
+    'center_medianfilter': lambda x: medianfilter(center(x.squeeze())).mean(axis=-1),
+    'center_medianfilter_unsharpmask': lambda x: unsharp_masking(medianfilter(center(x.squeeze()))).mean(axis=-1),
+    'center_medianfilter_unsharpmask_whiten': lambda x: whiten(unsharp_masking(medianfilter(center(x.squeeze())))).mean(axis=-1),
 }
 
 
@@ -86,9 +88,9 @@ class Preprocessing(dj.Lookup):
     preprocessing       : varchar(200)
     """
 
-    contents = [
-        ('center_medianfilter_unsharpmask_histeq',),
-    ]
+    @property
+    def contents(self):
+        yield from map(tuple, preprocessors.keys())
 
 
 @schema
