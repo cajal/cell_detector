@@ -90,7 +90,7 @@ class Preprocessing(dj.Lookup):
 
     @property
     def contents(self):
-        yield from map(tuple, preprocessors.keys())
+        return [(k, ) for k in preprocessors]
 
 
 @schema
