@@ -3,9 +3,7 @@ import numpy as np
 from scipy import stats
 from scipy.ndimage import convolve1d
 from scipy.signal import medfilt, hamming
-
 from scipy.ndimage.filters import convolve1d
-
 
 
 def preprocess(X):
@@ -23,9 +21,29 @@ def preprocess(X):
     # X =  contrast_normalize(X.squeeze())
     # X = (X - X.min()) / (X.max() - X.min())
     # X -= X.min()
-    #return X
-    return histeq(X, 500)
+    # return X
+    # return histeq(X, 500)
 
+    return normalize(whiten(X.squeeze()))
+
+def medianfilter(X, axis=2):
+    ks = [1]*len(X.shape)
+    ks[axis] = 5
+    return medfilt(X, kernel_size=ks)
+
+def unsharp_masking(X):
+    lp = np.array(X)
+    for i, ws in zip([0, 1, 2], [50, 50, 25]):
+        h = hamming(ws)
+        h /= h.sum()
+        convolve1d(lp, h, axis=i, output=lp)
+    return X - lp
+
+def center(X):
+    return (X - X.mean()) / X.std()
+
+def normalize(X):
+    return (X - X.min()) / (X.max() - X.min())
 
 
 def histeq(x, bins=500):
@@ -38,18 +56,38 @@ def histeq(x, bins=500):
     # out = np.interp(x.ravel(), edges[:-1], cdf)
     target = stats.beta.ppf(cdf, .9, 5)
     out = np.interp(x.ravel(), edges[:-1], target)
-
+    out -= out.mean()
     return out.reshape(x.shape)
 
-def contrast_normalize(X, kernelsize=(120,120,30)):
-    local_sq = X**2
+
+def contrast_normalize(X, kernelsize=(120, 120, 30)):
+    local_sq = X ** 2
     local_mean = np.asarray(X)
     for axis, ks in enumerate(kernelsize):
-        w = np.ones(ks)/ks
+        w = np.ones(ks) / ks
         local_sq = convolve1d(local_sq, w, axis=axis, mode='reflect')
         local_mean = convolve1d(local_mean, w, axis=axis, mode='reflect')
     return X / local_sq
 
+
+def whiten(X, n=4, cut_off=.4):
+    for i in range(X.shape[-1]):
+        Y = np.fft.fftn(X[..., i])
+        wx, wy, wz = X.shape[:3]
+        W = np.sqrt(np.fft.fftfreq(wx)[:, None, None] ** 2
+                    + np.fft.fftfreq(wy)[None, :, None] ** 2
+                    + np.fft.fftfreq(wz)[None, None, :] ** 2)
+        F = W * np.exp(- (W / cut_off) ** n)
+
+        # A = np.abs(Y*F)[::3,::3,::3]
+        # import matplotlib.pyplot as plt
+        # fig, ax = plt.subplots()
+        # ax.semilogy(W[::3,::3,::3].ravel(), A.ravel(), '.k',ms=1)
+        # plt.show()
+        X[..., i] = np.fft.ifftn(Y * F).real
+
+
+    return X
 
 
 def compute_crange(K, basefactors=2 ** np.arange(-3, 4.)):

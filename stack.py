@@ -1,8 +1,9 @@
 from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
-from utils import preprocess
+from utils import *
 import h5py
 import numpy as np
 import os
+
 
 class Stack:
     """
@@ -17,7 +18,6 @@ class Stack:
 
         self.preprocessor = preprocessor
         self.load(stack)
-
 
     def load(self, stackfile):
         if not isinstance(stackfile, str):
@@ -42,20 +42,21 @@ class Stack:
                 fid.create_dataset('cells', self.cells.shape, dtype=int, data=self.cells)
 
 
-
 if __name__ == "__main__":
     # s = Stack('data/smaller.hdf5', preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
     # b = FullBernoulliProcess((9, 9, 7), quadratic_channels=3, linear_channels=3)
 
     # s = Stack('data/sanity.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
     # s_test = Stack('data/sanity_test.hdf5', preprocessor=lambda x: x.mean(axis=-1).squeeze())
-    # b = RankDegenerateBernoulliProcess( (3,3,3), quadratic_channels=3, linear_channels=3)
+    # b = RankDegenerateBernoulliProcess( (3,3,3), quadratic_channels=3, linear_channels=3, common_channels=3)
 
 
-    # s = Stack('data/smaller.hdf5', preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
-    # b = RankDegenerateBernoulliProcess( (11,11,9), quadratic_channels=5, linear_channels=5, common_channels=10)
-    s = Stack('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5',
-              preprocessor=lambda x: preprocess(x).mean(axis=-1).squeeze())
-    b = RankDegenerateBernoulliProcess( (17,17,15), quadratic_channels=5, linear_channels=5, common_channels=10)
-    b.fit(s.X, s.cells)
+    s = Stack('data/smaller.hdf5',
+              preprocessor=lambda x: histeq(unsharp_masking(medianfilter(center(x.squeeze()))), 500).mean(
+                  axis=-1))
+    b = RankDegenerateBernoulliProcess((11, 11, 9), quadratic_channels=40, linear_channels=40, common_channels=20)
+    # s = Stack('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5',
+    #           preprocessor=lambda x: histeq(unsharp_masking(medianfilter(center(x.squeeze()))),500).mean(axis=-1))
+    # b = RankDegenerateBernoulliProcess((19, 19, 17), quadratic_channels=40, linear_channels=40, common_channels=20)
+    b.fit(s.X, s.cells, maxiter=50)
     b.visualize(s.X, s.cells)

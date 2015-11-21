@@ -5,10 +5,11 @@ from matplotlib import pyplot as plt
 from scipy.optimize import minimize
 import theano as th
 from collections import OrderedDict
-
+from scipy.ndimage import convolve1d
 floatX = th.config.floatX
 T = th.tensor
 import theano.tensor.nnet.conv3d2d
+from scipy.special import beta
 
 tensor5 = theano.tensor.TensorType('float64', 5 * [False])
 
@@ -25,8 +26,12 @@ class BernoulliProcess:
         y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))
         Y = np.zeros(y_shape)
 
+        cell_locations = cell_locations[np.all(cell_locations < Y.shape, axis=1)
+                                        & np.all(cell_locations >= 0, axis=1)]
         cell_locs = cell_locations - np.array([v // 2 for v in self.voxel])
+
         i, j, k = cell_locs.T
+
         Y[i, j, k] = 1
         Y_ = th.shared(np.require(Y, dtype=floatX), borrow=True, name='cells')
 
@@ -38,13 +43,18 @@ class BernoulliProcess:
 
         return th.function(parameters_, cross_entropy_), th.function(parameters_, dcross_entropy_)
 
+    def set_parameters(self, **kwargs):
+        for k, v in kwargs.items():
+            if k in self.parameters:
+                self.parameters[k] = v
+
     def visualize(self, X, cell_locations=None):
         y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))
-        Y = np.zeros(y_shape)
-        if cell_locations is not None:
-            cell_locs = cell_locations - np.array([v // 2 for v in self.voxel])
-        i, j, k = cell_locs.T
-        Y[i, j, k] = 1
+        # Y = np.zeros(y_shape)
+        # if cell_locations is not None:
+        #     cell_locs = cell_locations - np.array([v // 2 for v in self.voxel])
+        # i, j, k = cell_locs.T
+        # Y[i, j, k] = 1
 
         p_, parameters_ = self._build_probability_map(X)
         p = th.function(parameters_, p_)
@@ -52,22 +62,22 @@ class BernoulliProcess:
 
         i, j, k = [v // 2 for v in self.voxel]
 
-        X = np.stack([0*X, X, X], axis=3)
-
         # X[i:-i, j:-j, k:-k, -1] = P
-        X[i:-i, j:-j, k:-k, 0] = Y
-        X0 = 0*X
-        X0[i:-i, j:-j, k:-k, 0] = P
-        X0[i:-i, j:-j, k:-k, 1] = P
-        X0[i:-i, j:-j, k:-k, 2] = P
+        X0 = 0 * X
+        X0[i:-i, j:-j, k:-k] = P
         print(P.min(), P.max())
 
         fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
         plt.ion()
         plt.show()
         for z in range(X.shape[2]):
-            ax[0].imshow(X[..., z, :], cmap=plt.cm.gray, interpolation='nearest', )
-            ax[1].imshow(X0[..., z, :], cmap=plt.cm.gray, interpolation='nearest')
+            ax[0].imshow(X[..., z], cmap=plt.cm.gray, interpolation='nearest', )
+            ax[1].imshow(X0[..., z], cmap=plt.cm.gray, interpolation='nearest')
+            if cell_locations is not None:
+                cells = cell_locations[cell_locations[:, 2] == z]
+
+                ax[0].plot(cells[:, 1], cells[:, 0], 'or', mfc='dodgerblue', alpha=.8)
+                ax[1].plot(cells[:, 1], cells[:, 0], 'or', mfc='dodgerblue', alpha=.8)
             ax[0].axis('tight')
             ax[1].axis('tight')
             plt.draw()
@@ -81,13 +91,14 @@ class BernoulliProcess:
 
     def fit(self, X, cell_locations, **options):
         ll, dll = self._build_crossentropy(X, cell_locations)
+        p_, params_ = self._build_probability_map(X)
+        P = th.function(params_, p_)
         slices, shapes = [], []
         i = 0
         for elem in self.parameters.values():
             slices.append(slice(i, i + elem.size))
             shapes.append(elem.shape)
             i += elem.size
-
         def ravel(params):
             return np.hstack([e.ravel() for e in params])
 
@@ -100,13 +111,14 @@ class BernoulliProcess:
         def dobj(x):
             return ravel(dll(*unravel(x)))
 
+
         def callback(x):
             print('Cross entropy:', obj(x))
 
         x0 = ravel(self.parameters.values())
         # todo find a better way than to box constrain the parameters
         opt_results = minimize(obj, x0, jac=dobj, method='L-BFGS-B', callback=callback,
-                               bounds = list(zip(-1000*np.ones(len(x0)), 1000*np.ones(len(x0)))),
+                               bounds=list(zip(-1000 * np.ones(len(x0)), 1000 * np.ones(len(x0)))),
                                options=options)
         for k, param in zip(self.parameters, unravel(opt_results.x)):
             self.parameters[k] = param
@@ -127,8 +139,6 @@ class FullBernoulliProcess(BernoulliProcess):
 
         self.parameters['beta'] = np.random.randn(linear_channels, quadratic_channels)
         self.parameters['b'] = np.random.randn(linear_channels)
-
-
 
     def _build_probability_map(self, X):
         X = X[None, ..., None]  # batch, x, y, z, channels
@@ -192,12 +202,9 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         self.parameters['w_z'] = np.random.rand(linear_channels, 1, flt_depth, 1)
         self.parameters['w_z'] /= self.parameters['w_z'].size
 
-
         self.parameters['beta'] = np.random.randn(common_channels, quadratic_channels)
         self.parameters['gamma'] = np.random.randn(common_channels, linear_channels)
         self.parameters['b'] = np.random.randn(common_channels)
-
-
 
     def _build_separable_convolution(self, no_of_filters, X_, in_shape):
         Vxy_ = T.tensor4(dtype=floatX)  # filters, row, col, channel
@@ -206,7 +213,6 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         batchsize, in_channels = 1, 1
         in_width, in_height, in_depth, _ = in_shape
         flt_row, flt_col, flt_depth = self.voxel
-
 
         # X is row, col, depth, channel
         xy_ = T.nnet.conv2d(
@@ -217,24 +223,23 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
             filter_shape=(no_of_filters, in_channels, flt_row, flt_col),
             image_shape=(in_depth, in_channels, in_width, in_height),
             border_mode='valid'
-        ).dimshuffle(1, 2, 3, 0) # the output is shaped (filters, row, col, depth)
+        ).dimshuffle(1, 2, 3, 0)  # the output is shaped (filters, row, col, depth)
 
         retval_, _ = theano.map(
             lambda v, f:
-                T.nnet.conv2d(
-                    # v is (row, col, depth) and well make it
-                    # (row, 1, col, depth) = (batch size, stack size, nb row, nb col)
-                    input=v.dimshuffle(0, 'x', 1, 2),
-                    # f is (1, flt_depth, in_channels=1) and we'll make it
-                    # (1, 1, in_channels, flt_depth) =  (nb filters, stack size, nb row, nb col)
-                    filters=f.dimshuffle('x', 0, 2, 1),  # nb filters, stack size, nb row, nb col
-                    image_shape=(in_width - flt_row + 1, 1, in_height - flt_col + 1, in_depth),
-                    filter_shape=(1, 1, in_channels, flt_depth),
-                    border_mode='valid'
-                ).squeeze()
+            T.nnet.conv2d(
+                # v is (row, col, depth) and well make it
+                # (row, 1, col, depth) = (batch size, stack size, nb row, nb col)
+                input=v.dimshuffle(0, 'x', 1, 2),
+                # f is (1, flt_depth, in_channels=1) and we'll make it
+                # (1, 1, in_channels, flt_depth) =  (nb filters, stack size, nb row, nb col)
+                filters=f.dimshuffle('x', 0, 2, 1),  # nb filters, stack size, nb row, nb col
+                image_shape=(in_width - flt_row + 1, 1, in_height - flt_col + 1, in_depth),
+                filter_shape=(1, 1, in_channels, flt_depth),
+                border_mode='valid'
+            ).squeeze()
             , sequences=(xy_, Vz_))
         return retval_, (Vxy_, Vz_)
-
 
     def _build_exponent(self, X):
         X = X[..., None]  # row, col, depth, channels=1
@@ -250,8 +255,8 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         beta_ = T.dmatrix()
         gamma_ = T.dmatrix()
 
-        quadr_filter_ = T.tensordot(quadratic_filter_ ** 2, beta_, (0, 1)).dimshuffle(3,0,1,2)
-        lin_filter_ = T.tensordot(linear_filter_, gamma_, (0, 1)).dimshuffle(3,0,1,2)
+        quadr_filter_ = T.tensordot(quadratic_filter_ ** 2, beta_, (0, 1)).dimshuffle(3, 0, 1, 2)
+        lin_filter_ = T.tensordot(linear_filter_, gamma_, (0, 1)).dimshuffle(3, 0, 1, 2)
 
         # Uxy = np.random.randn(quadratic_channels, flt_row, flt_col, in_channels)
         # Uz = np.random.randn(quadratic_channels, 1, flt_depth, in_channels)
@@ -262,10 +267,9 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
         # b = np.random.randn(linear_channels)
 
         exponent_ = quadr_filter_ + lin_filter_ + b_.dimshuffle(0, 'x', 'x', 'x')
-        return exponent_, (Uxy_, Uz_, Wxy_, Wz_, beta_, gamma_,  b_)
+        return exponent_, (Uxy_, Uz_, Wxy_, Wz_, beta_, gamma_, b_)
 
     def _build_probability_map(self, X):
-
         exponent_, params_ = self._build_exponent(X)
 
         p_ = T.exp(exponent_).sum(axis=0)
@@ -273,3 +277,15 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
             1 - 1e-8) + 1e-8  # apply logistic function to log p_ and add a bit of offset for numerical stability
 
         return p_, params_
+
+    def __str__(self):
+        return """
+        Range degenerate Bernoulli process
+
+        quadratic components: %i
+        linear components: %i
+        common components: %i
+        """ % (self.quadratic_channels, self.linear_channels, self.common_channels)
+
+    def __repr__(self):
+        return self.__str__()
