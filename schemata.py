@@ -2,10 +2,12 @@ import datajoint as dj
 from stack import Stack
 from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
 from utils import *
-
+import seaborn as sns
+from djaddon import gitlog, log_git_status
 schema = dj.schema('datajoint_aod_cell_detection', locals())
 import git
 import itertools
+
 
 preprocessors = {
     'center_medianfilter_unsharpmask_histeq':
@@ -29,7 +31,7 @@ class TrainingFiles(dj.Lookup):
     """
 
     contents = [
-        ('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', 17, 17, 15), # TODO move voxels somewhere else and join training and test data
+        ('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', 17, 17, 15),
     ]
 
 
@@ -46,7 +48,7 @@ class TestingFiles(dj.Lookup):
     """
 
     contents = [
-        ('2015-08-25_13-49-54_2015-08-25_13-57-23.h5', 17, 17, 15),
+        ('data/2015-08-25_13-49-54_2015-08-25_13-57-23.h5', 17, 17, 15),
     ]
 
 
@@ -147,19 +149,36 @@ class TrainedRDBernoulliProcess(dj.Computed):
         self.insert1(key)
         TrainedRDBernoulliProcess.GitKey().make_tuple(key_sub)
 
-    def plot(self):
-        for key in (self & 'quadratic_components = 9' & 'linear_components=9').fetch.as_dict:
+@gitlog
+@schema
+class TestRDBernoulliProcess(dj.Computed):
+    definition = """
+    -> TrainedRDBernoulliProcess
+    -> TestingFiles
+    ---
+    test_cross_entropy      : double
+    """
 
-            voxel = (TrainingFiles() & key).fetch1['vx', 'vy', 'vz']
-            b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
-                                               linear_channels=key['linear_components'],
-                                               common_channels=key['common_components'])
-            b.set_parameters(**key)
-            print(b)
-            s = Stack(key['file_name'], preprocessor=preprocessors[key['preprocessing']])
-            b.visualize(s.X, s.cells)
+    @property
+    def populated_from(self):
+        return TrainedRDBernoulliProcess()
 
+    def _make_tuples(self, key):
+
+        trained = (TrainedRDBernoulliProcess() & key).fetch1()
+        voxel = (TrainingFiles() & key).fetch1['vx', 'vy', 'vz']
+        b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
+                                                  linear_channels=key['linear_components'],
+                                                  common_channels=key['common_components'])
+        b.set_parameters(**trained)
+
+        for test_data in (TestingFiles() - key).fetch.as_dict():
+            s = Stack(test_data['file_name'], preprocessor=preprocessors[key['preprocessing']])
+            key.update(test_data)
+            key['test_cross_entropy'] = b.cross_entropy(s.X, s.cells)
+            self.insert1(key)
 
 if __name__ == "__main__":
-    TrainedRDBernoulliProcess().populate(reserve_jobs=True)
+    # TrainedRDBernoulliProcess().populate(reserve_jobs=True)
     # TrainedRDBernoulliProcess().plot()
+    TestRDBernoulliProcess().populate(reserve_jobs=True)
