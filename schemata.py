@@ -40,8 +40,7 @@ class TestingFiles(dj.Lookup):
     definition = """
     # input testing files
 
-    file_name   : varchar(100)  # filename
-    ---
+    test_file_name   : varchar(100)  # filename
     vx          : int # x voxel size
     vy          : int # y voxel size
     vz          : int # z voxel size
@@ -94,7 +93,7 @@ class Preprocessing(dj.Lookup):
     def contents(self):
         return [(k, ) for k in preprocessors]
 
-
+@gitlog
 @schema
 class TrainedRDBernoulliProcess(dj.Computed):
     definition = """
@@ -116,24 +115,6 @@ class TrainedRDBernoulliProcess(dj.Computed):
     train_cross_entropy      : double   # in Bits/component
     """
 
-    class GitKey(dj.Part):
-        definition = """
-        ->TrainedRDBernoulliProcess
-        ---
-        sha1        : varchar(40)
-        branch      : varchar(50)
-        modified    : int   # whether there are modified files or not
-        """
-
-        def make_tuple(self, key):
-            repo = git.Repo('./')
-            sha1, branch = repo.head.commit.name_rev.split()
-            modified = (repo.git.status().find("modified") > 0) * 1
-            key['sha1'] = sha1
-            key['branch'] = branch
-            key['modified'] = modified
-            self.insert1(key)
-
     def _make_tuples(self, key):
         key_sub = dict(key)
         s = Stack(key['file_name'], preprocessor=preprocessors[key['preprocessing']])
@@ -147,7 +128,6 @@ class TrainedRDBernoulliProcess(dj.Computed):
         key.update(b.parameters)
         key['train_cross_entropy'] = b.cross_entropy(s.X, s.cells)
         self.insert1(key)
-        TrainedRDBernoulliProcess.GitKey().make_tuple(key_sub)
 
 @gitlog
 @schema
@@ -161,20 +141,18 @@ class TestRDBernoulliProcess(dj.Computed):
 
     @property
     def populated_from(self):
-        return TrainedRDBernoulliProcess()
+        return TrainedRDBernoulliProcess() * TestingFiles() * TrainingFiles() & TrainedRDBernoulliProcess()
 
     def _make_tuples(self, key):
 
-        trained = (TrainedRDBernoulliProcess() & key).fetch1()
-        voxel = (TrainingFiles() & key).fetch1['vx', 'vy', 'vz']
-        b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
-                                                  linear_channels=key['linear_components'],
-                                                  common_channels=key['common_components'])
-        b.set_parameters(**trained)
-
-        for test_data in (TestingFiles() - key).fetch.as_dict():
-            s = Stack(test_data['file_name'], preprocessor=preprocessors[key['preprocessing']])
-            key.update(test_data)
+        if key['file_name'] != key['test_file_name']:
+            trained = (TrainedRDBernoulliProcess() & key).fetch1()
+            voxel = key['vx'], key['vy'], key['vz']
+            b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
+                                                      linear_channels=key['linear_components'],
+                                                      common_channels=key['common_components'])
+            b.set_parameters(**trained)
+            s = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
             key['test_cross_entropy'] = b.cross_entropy(s.X, s.cells)
             self.insert1(key)
 
