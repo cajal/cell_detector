@@ -137,6 +137,7 @@ class TestRDBernoulliProcess(dj.Computed):
     ---
     test_cross_entropy      : double
     test_auc                : double # ROC area under the curve
+    test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
     """
 
     @property
@@ -155,11 +156,12 @@ class TestRDBernoulliProcess(dj.Computed):
 
             s = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
 
-            key['test_auc'] = b.auc(s.X, s.cells)
+            key['test_auc'] = b.auc(s.X, s.cells, average='macro')
+            key['test_auc_weighted'] = b.auc(s.X, s.cells, average='weighted')
             key['test_cross_entropy'] = b.cross_entropy(s.X, s.cells)
             self.insert1(key)
 
 if __name__ == "__main__":
     # TrainedRDBernoulliProcess().populate(reserve_jobs=True)
     # TrainedRDBernoulliProcess().plot()
-    TestRDBernoulliProcess().populate(reserve_jobs=False)
+    TestRDBernoulliProcess().populate(reserve_jobs=True)

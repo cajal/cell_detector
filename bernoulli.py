@@ -60,8 +60,8 @@ class BernoulliProcess:
         p = th.function(params_, p_)
         return p(*tuple(self.parameters.values()))
 
-    def auc(self, X, cell_locations):
-        return roc_auc_score(self._build_label_stack(X, cell_locations).ravel(), self.P(X).ravel())
+    def auc(self, X, cell_locations, **kwargs):
+        return roc_auc_score(self._build_label_stack(X, cell_locations).ravel(), self.P(X).ravel(), **kwargs)
 
     def visualize(self, X, cell_locations=None):
         y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))

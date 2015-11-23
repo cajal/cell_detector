@@ -7,18 +7,27 @@ from pprint import pprint
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 import argparse
+import seaborn as sns
 
 # plot_params = dict(cmap=plt.cm.gray, vmin=0, vmax=1)
 plot_params = dict(cmap=plt.cm.gray)
+plot_paramsP = dict(cmap=sns.blend_palette(['yellow','deeppink'], as_cmap=True), zorder=5)
 
 
 class CellLabeler:
-    def __init__(self, stack):
+    def __init__(self, stack, P=None):
         self.stack = stack
         self.X = stack.X.squeeze()
         self.cells = stack.cells
         self.cut = OrderedDict(zip(['row', 'col', 'depth'], [0, 0, 0]))
         self.cell_idx = 0
+
+        self.P = 0 * self.X
+        if P is not None:
+            i, j, k = [(i - j + 1)//2 for i, j in zip(self.X.shape, P.shape)]
+            print(i,j,k)
+            self.P[i:-i, j:-j, k:-k] = P
+
         fig = plt.figure(facecolor='w')
         gs = plt.GridSpec(3, 5)
         ax = dict()
@@ -36,6 +45,10 @@ class CellLabeler:
 
     def replot(self):
         X0 = self.X
+        P0 = np.asarray(self.P)
+
+        P0[P0 < 0.005] = np.nan
+
         c = self.cells
         row, col, depth = self.cut.values()
         nr, nc, nd = self.X.shape[:3]
@@ -44,6 +57,7 @@ class CellLabeler:
             a.clear()
 
         ax['row'].imshow(X0[row, :, :].T, **plot_params)
+        ax['row'].imshow(P0[row, :, :].T, **plot_paramsP)
         ax['row'].plot([0, nc], [depth, depth], '-r', lw=.5, zorder=10)
         ax['row'].plot([col, col], [0, nd], '-r', lw=.5, zorder=10)
         ax['row'].axis('tight')
@@ -53,6 +67,7 @@ class CellLabeler:
         ax['row'].set_title('col-depth plane')
 
         ax['col'].imshow(X0[:, col, :], **plot_params)
+        ax['col'].imshow(P0[:, col, :], **plot_paramsP)
         ax['col'].plot([depth, depth], [0, nr], '-r', lw=.5, zorder=10)
         ax['col'].plot([0, nd], [row, row], '-r', lw=.5, zorder=10)
         ax['col'].axis('tight')
@@ -62,6 +77,7 @@ class CellLabeler:
         ax['col'].set_title('row-depth plane')
 
         ax['depth'].imshow(X0[:, :, depth], **plot_params)
+        ax['depth'].imshow(P0[:, :, depth], **plot_paramsP)
         ax['depth'].plot([col, col], [0, nr], '-r', lw=.5, zorder=10)
         ax['depth'].plot([0, nc], [row, row], '-r', lw=.5, zorder=10)
         ax['depth'].axis('tight')
@@ -73,15 +89,15 @@ class CellLabeler:
 
         idx = c[:, 2] == depth
         if np.any(idx):
-            ax['depth'].plot(c[idx, 1], c[idx, 0], 'ok', mfc='lime')
+            ax['depth'].plot(c[idx, 1], c[idx, 0], 'ok', mfc='lime', alpha=0.5)
 
         idx = c[:, 0] == row
         if np.any(idx):
-            ax['row'].plot(c[idx, 1], c[idx, 2], 'ok', mfc='lime')
+            ax['row'].plot(c[idx, 1], c[idx, 2], 'ok', mfc='lime', alpha=0.5)
 
         idx = c[:, 1] == col
         if np.any(idx):
-            ax['col'].plot(c[idx, 2], c[idx, 0], 'ok', mfc='lime')
+            ax['col'].plot(c[idx, 2], c[idx, 0], 'ok', mfc='lime', alpha=0.5)
 
         ax['3d'].plot(c[:, 0], c[:, 1], c[:, 2], 'ok', mfc='lime')
         ax['3d'].plot([row, row], [0, nc], [depth, depth], '-r')
@@ -101,12 +117,12 @@ class CellLabeler:
         if what in dimensions:
             i = dimensions.index(what)
             k = self.cut[what] + event.step
-            k = min(self.X.shape[i], max(k,0))
+            k = min(self.X.shape[i], max(k, 0))
             self.cut[what] = k
         self.replot()
 
     def on_key(self, event):
-        if event.key in ['t','r','e']:
+        if event.key in ['t', 'r', 'e']:
             if event.key == 'e':
                 self.cell_idx = max(0, self.cell_idx - 1)
             elif event.key == 't':
@@ -118,14 +134,13 @@ class CellLabeler:
             print('Saving')
             self.stack.cells = self.cells
             self.stack.save(fname)
-            self.fig.suptitle('File saved to %s' % (fname, ))
+            self.fig.suptitle('File saved to %s' % (fname,))
         if event.key == 'a':
             new_cell = np.asarray(list(self.cut.values()), dtype=int)
             print('Adding new cell at', new_cell)
             self.cells = np.vstack((self.cells, new_cell))
             self.fig.suptitle('New cell added')
         self.replot()
-
 
     def on_press(self, event):
         what = self._determine_axes(event)
@@ -150,19 +165,18 @@ class CellLabeler:
         self.replot()
 
 
-
-
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description='Manually label cells in a stack.')
 
     parser.add_argument('file', type=str, help='hdf5 file containing the stack (dims row, col, depth, 1, channels)')
+    parser.add_argument('--probability', type=str, help='numpy file containing the probability map for file')
 
     args = parser.parse_args()
 
-
-
-
     s = Stack(args.file,
               preprocessor=lambda x: whiten(unsharp_masking(medianfilter(center(x.squeeze())))).mean(axis=-1))
-    labeler = CellLabeler(s)
+    if args.probability:
+        P = np.load(args.probability)
+    else:
+        P = None
+    labeler = CellLabeler(s, P=P)
