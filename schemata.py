@@ -3,11 +3,10 @@ from stack import Stack
 from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
 from utils import *
 import seaborn as sns
-from djaddon import gitlog, log_git_status
+from djaddon import gitlog
 schema = dj.schema('datajoint_aod_cell_detection', locals())
 import git
 import itertools
-
 
 preprocessors = {
     'center_medianfilter_unsharpmask_histeq':
@@ -137,6 +136,7 @@ class TestRDBernoulliProcess(dj.Computed):
     -> TestingFiles
     ---
     test_cross_entropy      : double
+    test_auc                : double # ROC area under the curve
     """
 
     @property
@@ -152,11 +152,14 @@ class TestRDBernoulliProcess(dj.Computed):
                                                       linear_channels=key['linear_components'],
                                                       common_channels=key['common_components'])
             b.set_parameters(**trained)
+
             s = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
+
+            key['test_auc'] = b.auc(s.X, s.cells)
             key['test_cross_entropy'] = b.cross_entropy(s.X, s.cells)
             self.insert1(key)
 
 if __name__ == "__main__":
     # TrainedRDBernoulliProcess().populate(reserve_jobs=True)
     # TrainedRDBernoulliProcess().plot()
-    TestRDBernoulliProcess().populate(reserve_jobs=True)
+    TestRDBernoulliProcess().populate(reserve_jobs=False)

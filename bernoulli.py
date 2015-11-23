@@ -10,6 +10,8 @@ floatX = th.config.floatX
 T = th.tensor
 import theano.tensor.nnet.conv3d2d
 from scipy.special import beta
+from sklearn.metrics import roc_auc_score
+
 
 tensor5 = theano.tensor.TensorType('float64', 5 * [False])
 
@@ -22,7 +24,8 @@ class BernoulliProcess:
         self.voxel = voxel
         self.parameters = OrderedDict()
 
-    def _build_crossentropy(self, X, cell_locations):
+
+    def _build_label_stack(self, X, cell_locations):
         y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))
         Y = np.zeros(y_shape)
 
@@ -31,8 +34,12 @@ class BernoulliProcess:
         cell_locs = cell_locations - np.array([v // 2 for v in self.voxel])
 
         i, j, k = cell_locs.T
-
         Y[i, j, k] = 1
+
+        return Y
+
+    def _build_crossentropy(self, X, cell_locations):
+        Y = self._build_label_stack(X, cell_locations)
         Y_ = th.shared(np.require(Y, dtype=floatX), borrow=True, name='cells')
 
         p_, parameters_ = self._build_probability_map(X)
@@ -47,6 +54,14 @@ class BernoulliProcess:
         for k, v in kwargs.items():
             if k in self.parameters:
                 self.parameters[k] = v
+
+    def P(self, X):
+        p_, params_ = self._build_probability_map(X)
+        p = th.function(params_, p_)
+        return p(*tuple(self.parameters.values()))
+
+    def auc(self, X, cell_locations):
+        return roc_auc_score(self._build_label_stack(X, cell_locations).ravel(), self.P(X).ravel())
 
     def visualize(self, X, cell_locations=None):
         y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))
@@ -277,6 +292,7 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
             1 - 1e-8) + 1e-8  # apply logistic function to log p_ and add a bit of offset for numerical stability
 
         return p_, params_
+
 
     def __str__(self):
         return """
