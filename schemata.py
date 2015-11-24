@@ -132,6 +132,8 @@ class TrainedBSTM(dj.Computed):
         b.fit(s.X, s.cells, maxiter=100)
         key.update(b.parameters)
         key['train_cross_entropy'] = b.cross_entropy(s.X, s.cells)
+        key['train_auc_weighted'] = b.auc(s.X, s.cells, average='weighted')
+        key['train_auc'] = b.auc(s.X, s.cells, average='macro')
         self.insert1(key)
 
 
