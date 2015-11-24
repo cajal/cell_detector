@@ -4,6 +4,7 @@ from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
 from utils import *
 import seaborn as sns
 from djaddon import gitlog
+
 schema = dj.schema('datajoint_aod_cell_detection', locals())
 import git
 import itertools
@@ -11,44 +12,46 @@ import itertools
 preprocessors = {
     'center_medianfilter_unsharpmask_histeq':
         lambda x: histeq(unsharp_masking(medianfilter(center(x.squeeze()))), 500).mean(axis=-1),
-    'center_medianfilter': lambda x: medianfilter(center(x.squeeze())).mean(axis=-1),
-    'center_medianfilter_unsharpmask': lambda x: unsharp_masking(medianfilter(center(x.squeeze()))).mean(axis=-1),
-    'center_medianfilter_unsharpmask_whiten': lambda x: whiten(unsharp_masking(medianfilter(center(x.squeeze())))).mean(axis=-1),
+    'center_medianfilter':
+        lambda x: medianfilter(center(x.squeeze())).mean(axis=-1),
+    'center_medianfilter_unsharpmask':
+        lambda x: unsharp_masking(medianfilter(center(x.squeeze()))).mean(axis=-1),
+    'center_medianfilter_unsharpmask_whiten':
+        lambda x: whiten(unsharp_masking(medianfilter(center(x.squeeze())))).mean(axis=-1),
 }
 
 
 @schema
-class TrainingFiles(dj.Lookup):
+class Stacks(dj.Lookup):
     definition = """
     # input training files
 
     file_name   : varchar(100)  # filename
-    ---
     vx          : int # x voxel size
     vy          : int # y voxel size
     vz          : int # z voxel size
+    ---
     """
 
     contents = [
         ('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', 17, 17, 15),
-    ]
-
-
-@schema
-class TestingFiles(dj.Lookup):
-    definition = """
-    # input testing files
-
-    test_file_name   : varchar(100)  # filename
-    vx          : int # x voxel size
-    vy          : int # y voxel size
-    vz          : int # z voxel size
-    """
-
-    contents = [
         ('data/2015-08-25_13-49-54_2015-08-25_13-57-23.h5', 17, 17, 15),
     ]
 
+
+# @schema
+# class TrainTestPairs(dj.Lookup):
+#     definition = """
+#     # input test files
+#     ->Stacks
+#     test_file_name   : varchar(100)  # filename
+#     ---
+#     """
+#
+#     def _prepare(self):
+#         self.insert( (Stacks()*Stacks().project(test_file_name='file_name') - 'file_name = test_file_name').fetch(),
+#                      skip_duplicates=True)
+#
 
 @schema
 class ComponentNumbers(dj.Lookup):
@@ -64,22 +67,22 @@ class ComponentNumbers(dj.Lookup):
 
     @property
     def contents(self):
-        yield from zip(range(5, 45, 5), range(5, 45, 5), range(5,45,5))
-
+        yield from itertools.starmap(lambda a, b: a + b,
+                                itertools.product(zip(range(2, 12, 2), range(2, 12, 2)), zip(range(2, 12, 2))))
 
 @schema
 class Repetitions(dj.Lookup):
     definition = """
     # multiple repetitions for fitting
-    
+
     idx     : int # repetition index
     ---
-    
+
     """
 
     @property
     def contents(self):
-        yield from zip(range(5))
+        yield from zip(range(10))
 
 
 @schema
@@ -90,15 +93,16 @@ class Preprocessing(dj.Lookup):
 
     @property
     def contents(self):
-        return [(k, ) for k in preprocessors]
+        return [(k,) for k in preprocessors]
+
 
 @gitlog
 @schema
-class TrainedRDBernoulliProcess(dj.Computed):
+class TrainedBSTM(dj.Computed):
     definition = """
-    # Trained ranl degenerate Bernoulli Processes
+    # trained BSTM models
 
-    -> TrainingFiles
+    -> Stacks
     -> ComponentNumbers
     -> Repetitions
     -> Preprocessing
@@ -112,12 +116,14 @@ class TrainedRDBernoulliProcess(dj.Computed):
     gamma                    : longblob # linear  coefficients
     b                        : longblob # offsets
     train_cross_entropy      : double   # in Bits/component
+    train_auc                : double   # in Bits/component
+    train_auc_weighted       : double   # in Bits/component
     """
 
     def _make_tuples(self, key):
         key_sub = dict(key)
         s = Stack(key['file_name'], preprocessor=preprocessors[key['preprocessing']])
-        voxel = (TrainingFiles() & key).fetch1['vx', 'vy', 'vz']
+        voxel = (Stacks() & key).fetch1['vx', 'vy', 'vz']
         b = RankDegenerateBernoulliProcess(voxel,
                                            quadratic_channels=key['quadratic_components'],
                                            linear_channels=key['linear_components'],
@@ -128,40 +134,41 @@ class TrainedRDBernoulliProcess(dj.Computed):
         key['train_cross_entropy'] = b.cross_entropy(s.X, s.cells)
         self.insert1(key)
 
-@gitlog
-@schema
-class TestRDBernoulliProcess(dj.Computed):
-    definition = """
-    -> TrainedRDBernoulliProcess
-    -> TestingFiles
-    ---
-    test_cross_entropy      : double
-    test_auc                : double # ROC area under the curve
-    test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
-    """
-
-    @property
-    def populated_from(self):
-        return TrainedRDBernoulliProcess() * TestingFiles() * TrainingFiles() & TrainedRDBernoulliProcess()
-
-    def _make_tuples(self, key):
-
-        if key['file_name'] != key['test_file_name']:
-            trained = (TrainedRDBernoulliProcess() & key).fetch1()
-            voxel = key['vx'], key['vy'], key['vz']
-            b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
-                                                      linear_channels=key['linear_components'],
-                                                      common_channels=key['common_components'])
-            b.set_parameters(**trained)
-
-            s = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
-
-            key['test_auc'] = b.auc(s.X, s.cells, average='macro')
-            key['test_auc_weighted'] = b.auc(s.X, s.cells, average='weighted')
-            key['test_cross_entropy'] = b.cross_entropy(s.X, s.cells)
-            self.insert1(key)
-
+#
+# # @gitlog
+# # @schema
+# # class TestRDBernoulliProcess(dj.Computed):
+# #     definition = """
+# #     -> TrainedBSTM
+# #     -> TestingFiles
+# #     ---
+# #     test_cross_entropy      : double
+# #     test_auc                : double # ROC area under the curve
+# #     test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
+# #     """
+# #
+# #     @property
+# #     def populated_from(self):
+# #         return TrainedBSTM() * TestingFiles() * Stacks() & TrainedBSTM()
+# #
+# #     def _make_tuples(self, key):
+# #         if key['file_name'] != key['test_file_name']:
+# #             trained = (TrainedBSTM() & key).fetch1()
+# #             voxel = key['vx'], key['vy'], key['vz']
+# #             b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
+# #                                                linear_channels=key['linear_components'],
+# #                                                common_channels=key['common_components'])
+# #             b.set_parameters(**trained)
+# #
+# #             s = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
+# #
+# #             key['test_auc'] = b.auc(s.X, s.cells, average='macro')
+# #             key['test_auc_weighted'] = b.auc(s.X, s.cells, average='weighted')
+# #             key['test_cross_entropy'] = b.cross_entropy(s.X, s.cells)
+# #             self.insert1(key)
+# #
+#
 if __name__ == "__main__":
-    # TrainedRDBernoulliProcess().populate(reserve_jobs=True)
-    # TrainedRDBernoulliProcess().plot()
-    TestRDBernoulliProcess().populate(reserve_jobs=True)
+    TrainedBSTM().populate(reserve_jobs=True)
+#     # TrainedBSTM().plot()
+#     TestRDBernoulliProcess().populate(reserve_jobs=True)
