@@ -96,8 +96,8 @@ class Preprocessing(dj.Lookup):
         return [(k,) for k in preprocessors]
 
 
-@gitlog
 @schema
+@gitlog
 class TrainedBSTM(dj.Computed):
     definition = """
     # trained BSTM models
@@ -133,6 +133,7 @@ class TrainedBSTM(dj.Computed):
         key.update(b.parameters)
         key['train_cross_entropy'] = b.cross_entropy(s.X, s.cells)
         self.insert1(key)
+
 
 #
 # # @gitlog
