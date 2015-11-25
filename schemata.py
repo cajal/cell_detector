@@ -36,6 +36,7 @@ class Stacks(dj.Lookup):
     contents = [
         ('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', 17, 17, 15),
         ('data/2015-08-25_13-49-54_2015-08-25_13-57-23.h5', 17, 17, 15),
+        ('data/2015-08-25_14-36-29_2015-08-25_14-44-41.h5', 17, 17, 15),
     ]
 
 
@@ -135,7 +136,6 @@ class TrainedBSTM(dj.Computed):
         key['train_auc_weighted'] = b.auc(s.X, s.cells, average='weighted')
         key['train_auc'] = b.auc(s.X, s.cells, average='macro')
         self.insert1(key)
-
 
 #
 # # @gitlog
