@@ -56,10 +56,20 @@ class CellLabeler:
         for a in ax.values():
             a.clear()
 
+        if self.cells is not None:
+            out = np.asarray(list(self.cut.values()), dtype=int)
+            d = np.sqrt(((self.cells - out) **2).sum(axis=1))
+        if self.cells is not None and np.any(d <= 5):
+            color = 'dodgerblue'
+        else:
+            color = 'red'
+
+
+
         ax['row'].imshow(X0[row, :, :].T, **plot_params)
         ax['row'].imshow(P0[row, :, :].T, **plot_paramsP)
-        ax['row'].plot([0, nc], [depth, depth], '-r', lw=.5, zorder=10)
-        ax['row'].plot([col, col], [0, nd], '-r', lw=.5, zorder=10)
+        ax['row'].plot([0, nc], [depth, depth], '-', lw=.5, zorder=10, color=color)
+        ax['row'].plot([col, col], [0, nd], '-', lw=.5, zorder=10, color=color)
         ax['row'].axis('tight')
         ax['row'].set_aspect('equal')
         ax['row'].axis('off')
@@ -68,8 +78,8 @@ class CellLabeler:
 
         ax['col'].imshow(X0[:, col, :], **plot_params)
         ax['col'].imshow(P0[:, col, :], **plot_paramsP)
-        ax['col'].plot([depth, depth], [0, nr], '-r', lw=.5, zorder=10)
-        ax['col'].plot([0, nd], [row, row], '-r', lw=.5, zorder=10)
+        ax['col'].plot([depth, depth], [0, nr], '-', lw=.5, zorder=10, color=color)
+        ax['col'].plot([0, nd], [row, row], '-', lw=.5, zorder=10, color=color)
         ax['col'].axis('tight')
         ax['col'].set_aspect('equal')
         ax['col'].axis('off')
@@ -78,8 +88,8 @@ class CellLabeler:
 
         ax['depth'].imshow(X0[:, :, depth], **plot_params)
         ax['depth'].imshow(P0[:, :, depth], **plot_paramsP)
-        ax['depth'].plot([col, col], [0, nr], '-r', lw=.5, zorder=10)
-        ax['depth'].plot([0, nc], [row, row], '-r', lw=.5, zorder=10)
+        ax['depth'].plot([col, col], [0, nr], '-', lw=.5, zorder=10, color=color)
+        ax['depth'].plot([0, nc], [row, row], '-', lw=.5, zorder=10, color=color)
         ax['depth'].axis('tight')
         ax['depth'].set_xlim((0, nc))
         ax['depth'].set_ylim((0, nr))
@@ -87,22 +97,30 @@ class CellLabeler:
         ax['depth'].axis('off')
         ax['depth'].set_title('row-col plane')
 
-        idx = c[:, 2] == depth
-        if np.any(idx):
-            ax['depth'].plot(c[idx, 1], c[idx, 0], 'ok', mfc='lime', alpha=0.5)
+        if self.cells is not None:
+            dz = np.abs(self.cells[:,2] - out[2])/5
+            dz = dz*(dz <= 1)
 
-        idx = c[:, 0] == row
-        if np.any(idx):
-            ax['row'].plot(c[idx, 1], c[idx, 2], 'ok', mfc='lime', alpha=0.5)
+            for cc, alpha in zip(c[dz > 0], 1-dz[dz >0]):
+                ax['depth'].plot(cc[1], cc[0], 'ok', mfc='dodgerblue', alpha=alpha)
 
-        idx = c[:, 1] == col
-        if np.any(idx):
-            ax['col'].plot(c[idx, 2], c[idx, 0], 'ok', mfc='lime', alpha=0.5)
+            idx = c[:, 2] == depth
+            if np.any(idx):
+                ax['depth'].plot(c[idx, 1], c[idx, 0], 'ok', mfc='lime', alpha=0.5)
 
-        ax['3d'].plot(c[:, 0], c[:, 1], c[:, 2], 'ok', mfc='lime')
-        ax['3d'].plot([row, row], [0, nc], [depth, depth], '-r')
-        ax['3d'].plot([row, row], [col, col], [0, nd], '-r')
-        ax['3d'].plot([0, nr], [col, col], [depth, depth], '-r')
+            idx = c[:, 0] == row
+            if np.any(idx):
+                ax['row'].plot(c[idx, 1], c[idx, 2], 'ok', mfc='lime', alpha=0.5)
+
+            idx = c[:, 1] == col
+            if np.any(idx):
+                ax['col'].plot(c[idx, 2], c[idx, 0], 'ok', mfc='lime', alpha=0.5)
+
+            ax['3d'].plot(c[:, 0], c[:, 1], c[:, 2], 'ok', mfc='lime')
+
+        ax['3d'].plot([row, row], [0, nc], [depth, depth], '--',lw=2, color=color)
+        ax['3d'].plot([row, row], [col, col], [0, nd], '--', lw=2,  color=color)
+        ax['3d'].plot([0, nr], [col, col], [depth, depth], '--', lw=2 , color=color)
 
         plt.draw()
 
@@ -152,15 +170,19 @@ class CellLabeler:
         elif what == 'col':
             self.cut['depth'], self.cut['row'] = int(event.xdata), int(event.ydata)
 
-        if event.button == 1:
-            new_cell = np.asarray(list(self.cut.values()), dtype=int)
-            print('Adding new cell at', new_cell)
-            self.cells = np.vstack((self.cells, new_cell))
+        if what is not None:
+            if event.button == 1:
+                new_cell = np.asarray(list(self.cut.values()), dtype=int)
+                print('Adding new cell at', new_cell)
+                if self.cells is None:
+                    self.cells = new_cell[None, :]
+                else:
+                    self.cells = np.vstack((self.cells, new_cell))
 
-        if event.button == 3:
-            out = np.asarray(list(self.cut.values()), dtype=int)
-            d = abs(self.cells - out).sum(axis=1)
-            self.cells = self.cells[d > 3, :]
+            if event.button == 3:
+                out = np.asarray(list(self.cut.values()), dtype=int)
+                d = abs(self.cells - out).sum(axis=1)
+                self.cells = self.cells[d > 3, :]
 
         self.replot()
 
