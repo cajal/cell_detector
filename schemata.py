@@ -172,8 +172,9 @@ class TestedBSTM(dj.Computed):
         key['test_auc_weighted'] = b.auc(s_test.X, s_test.cells, average='weighted')
         ce = b.cross_entropy(s_test.X, s_test.cells)
         key['test_cross_entropy'] = ce if not np.isnan(ce) else pymysql.NULL
-
         self.insert1(key)
+
+
 
 
 if __name__ == "__main__":

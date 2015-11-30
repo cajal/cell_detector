@@ -289,7 +289,7 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
 
         p_ = T.exp(exponent_).sum(axis=0)
         p_ = p_ / (1 + p_) * (
-            1 - 1e-8) + 1e-8  # apply logistic function to log p_ and add a bit of offset for numerical stability
+            1 - 2*1e-8) + 1e-8  # apply logistic function to log p_ and add a bit of offset for numerical stability
 
         return p_, params_
 
