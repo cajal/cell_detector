@@ -4,7 +4,7 @@ from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
 from utils import *
 import seaborn as sns
 from djaddon import gitlog
-import pymysql
+
 
 schema = dj.schema('fabee_cell_detection', locals())
 import itertools
@@ -170,8 +170,7 @@ class TestedBSTM(dj.Computed):
 
         key['test_auc'] = b.auc(s_test.X, s_test.cells, average='macro')
         key['test_auc_weighted'] = b.auc(s_test.X, s_test.cells, average='weighted')
-        ce = b.cross_entropy(s_test.X, s_test.cells)
-        key['test_cross_entropy'] = ce if not np.isnan(ce) else pymysql.NULL
+        key['test_cross_entropy'] = b.cross_entropy(s_test.X, s_test.cells)
         self.insert1(key)
 
 
