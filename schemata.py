@@ -138,7 +138,7 @@ class TrainedBSTM(dj.Computed):
         self.insert1(key)
 
     def key2BSTM(self, key):
-        trained = (self() & key).fetch1()
+        trained = (self & key).fetch1()
         voxel = key['vx'], key['vy'], key['vz']
         b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
                                            linear_channels=key['linear_components'],
@@ -147,8 +147,8 @@ class TrainedBSTM(dj.Computed):
         return b
 
 
-@gitlog
 @schema
+@gitlog
 class TestedBSTM(dj.Computed):
     definition = """
     -> TrainedBSTM
