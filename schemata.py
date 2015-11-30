@@ -5,7 +5,7 @@ from utils import *
 import seaborn as sns
 from djaddon import gitlog
 
-schema = dj.schema('datajoint_aod_cell_detection', locals())
+schema = dj.schema('datajoint_stack_cell_detection', locals())
 import git
 import itertools
 
@@ -22,37 +22,41 @@ preprocessors = {
 
 
 @schema
-class Stacks(dj.Lookup):
+class StackGroup(dj.Lookup):
     definition = """
     # input training files
-
-    file_name   : varchar(100)  # filename
-    vx          : int # x voxel size
-    vy          : int # y voxel size
-    vz          : int # z voxel size
+    group_name          : varchar(100) # group name
     ---
     """
 
-    contents = [
-        ('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', 17, 17, 15),
-        ('data/2015-08-25_13-49-54_2015-08-25_13-57-23.h5', 17, 17, 15),
-        ('data/2015-08-25_14-36-29_2015-08-25_14-44-41.h5', 17, 17, 15),
-    ]
+    class Stacks(dj.Part):
+        definition = """
+        ->StackGroup
+        file_name   : varchar(100)  # filename
+        vx          : int # x voxel size
+        vy          : int # y voxel size
+        vz          : int # z voxel size
+        ---
+        """
+
+    def _prepare(self):
+        for k, v in self.groups.items():
+            self.insert1((k,),skip_duplicates=True)
+            stacks = self.Stacks()
+            for val in v:
+                stacks.insert1((k,)+val)
+
+    groups = dict(
+        manolis082015 = [
+            ('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', 17, 17, 15),
+            ('data/2015-08-25_13-49-54_2015-08-25_13-57-23.h5', 17, 17, 15),
+            ('data/2015-08-25_14-36-29_2015-08-25_14-44-41.h5', 17, 17, 15),
+        ]
+    )
 
 
-# @schema
-# class TrainTestPairs(dj.Lookup):
-#     definition = """
-#     # input test files
-#     ->Stacks
-#     test_file_name   : varchar(100)  # filename
-#     ---
-#     """
-#
-#     def _prepare(self):
-#         self.insert( (Stacks()*Stacks().project(test_file_name='file_name') - 'file_name = test_file_name').fetch(),
-#                      skip_duplicates=True)
-#
+
+
 
 @schema
 class ComponentNumbers(dj.Lookup):
@@ -103,7 +107,7 @@ class TrainedBSTM(dj.Computed):
     definition = """
     # trained BSTM models
 
-    -> Stacks
+    -> StackGroup.Stacks
     -> ComponentNumbers
     -> Repetitions
     -> Preprocessing
@@ -122,9 +126,8 @@ class TrainedBSTM(dj.Computed):
     """
 
     def _make_tuples(self, key):
-        key_sub = dict(key)
         s = Stack(key['file_name'], preprocessor=preprocessors[key['preprocessing']])
-        voxel = (Stacks() & key).fetch1['vx', 'vy', 'vz']
+        voxel = (StackGroup.Stacks() & key).fetch1['vx', 'vy', 'vz']
         b = RankDegenerateBernoulliProcess(voxel,
                                            quadratic_channels=key['quadratic_components'],
                                            linear_channels=key['linear_components'],
@@ -147,35 +150,35 @@ class TrainedBSTM(dj.Computed):
         return b
 
 
-@schema
-@gitlog
-class TestedBSTM(dj.Computed):
-    definition = """
-    -> TrainedBSTM
-    test_file_name          : varchar(100)  # filename
-    ---
-    test_cross_entropy      : double
-    test_auc                : double # ROC area under the curve
-    test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
-    """
-
-    @property
-    def populated_from(self):
-        return TrainedBSTM()*Stacks().project(test_file_name='file_name') - 'file_name = test_file_name'
-
-
-    def _make_tuples(self, key):
-        b = TrainedBSTM().key2BSTM(key)
-        s_test = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
-
-        key['test_auc'] = b.auc(s_test.X, s_test.cells, average='macro')
-        key['test_auc_weighted'] = b.auc(s_test.X, s_test.cells, average='weighted')
-        key['test_cross_entropy'] = b.cross_entropy(s_test.X, s_test.cells)
-        self.insert1(key)
-
-
-if __name__ == "__main__":
-    TrainedBSTM().populate(reserve_jobs=True)
-    TestedBSTM().populate(reserve_jobs=True)
-#     # TrainedBSTM().plot()
-#     TestRDBernoulliProcess().populate(reserve_jobs=True)
+# @schema
+# @gitlog
+# class TestedBSTM(dj.Computed):
+#     definition = """
+#     -> TrainedBSTM
+#     test_file_name          : varchar(100)  # filename
+#     ---
+#     test_cross_entropy      : double
+#     test_auc                : double # ROC area under the curve
+#     test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
+#     """
+#
+#     @property
+#     def populated_from(self):
+#         return TrainedBSTM()*Stacks().project(test_file_name='file_name') - 'file_name = test_file_name'
+#
+#
+#     def _make_tuples(self, key):
+#         b = TrainedBSTM().key2BSTM(key)
+#         s_test = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
+#
+#         key['test_auc'] = b.auc(s_test.X, s_test.cells, average='macro')
+#         key['test_auc_weighted'] = b.auc(s_test.X, s_test.cells, average='weighted')
+#         key['test_cross_entropy'] = b.cross_entropy(s_test.X, s_test.cells)
+#         self.insert1(key)
+#
+#
+# if __name__ == "__main__":
+#     TrainedBSTM().populate(reserve_jobs=True)
+#     TestedBSTM().populate(reserve_jobs=True)
+# #     # TrainedBSTM().plot()
+# #     TestRDBernoulliProcess().populate(reserve_jobs=True)
