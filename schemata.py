@@ -41,21 +41,18 @@ class StackGroup(dj.Lookup):
 
     def _prepare(self):
         for k, v in self.groups.items():
-            self.insert1((k,),skip_duplicates=True)
+            self.insert1((k,), skip_duplicates=True)
             stacks = self.Stacks()
             for val in v:
-                stacks.insert1((k,)+val)
+                stacks.insert1((k,) + val, skip_duplicates=True)
 
     groups = dict(
-        manolis082015 = [
+        manolis082015=[
             ('data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5', 17, 17, 15),
             ('data/2015-08-25_13-49-54_2015-08-25_13-57-23.h5', 17, 17, 15),
             ('data/2015-08-25_14-36-29_2015-08-25_14-44-41.h5', 17, 17, 15),
-        ]
+        ],
     )
-
-
-
 
 
 @schema
@@ -73,7 +70,8 @@ class ComponentNumbers(dj.Lookup):
     @property
     def contents(self):
         yield from itertools.starmap(lambda a, b: a + b,
-                                itertools.product(zip(range(2, 12, 2), range(2, 12, 2)), zip(range(2, 12, 2))))
+                                     itertools.product(zip(range(2, 12, 2), range(2, 12, 2)), zip(range(2, 12, 2))))
+
 
 @schema
 class Repetitions(dj.Lookup):
@@ -149,36 +147,33 @@ class TrainedBSTM(dj.Computed):
         b.set_parameters(**trained)
         return b
 
+@schema
+@gitlog
+class TestedBSTM(dj.Computed):
+    definition = """
+    -> TrainedBSTM
+    test_file_name          : varchar(100)  # filename
+    ---
+    test_cross_entropy      : double
+    test_auc                : double # ROC area under the curve
+    test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
+    """
 
-# @schema
-# @gitlog
-# class TestedBSTM(dj.Computed):
-#     definition = """
-#     -> TrainedBSTM
-#     test_file_name          : varchar(100)  # filename
-#     ---
-#     test_cross_entropy      : double
-#     test_auc                : double # ROC area under the curve
-#     test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
-#     """
-#
-#     @property
-#     def populated_from(self):
-#         return TrainedBSTM()*Stacks().project(test_file_name='file_name') - 'file_name = test_file_name'
-#
-#
-#     def _make_tuples(self, key):
-#         b = TrainedBSTM().key2BSTM(key)
-#         s_test = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
-#
-#         key['test_auc'] = b.auc(s_test.X, s_test.cells, average='macro')
-#         key['test_auc_weighted'] = b.auc(s_test.X, s_test.cells, average='weighted')
-#         key['test_cross_entropy'] = b.cross_entropy(s_test.X, s_test.cells)
-#         self.insert1(key)
-#
-#
-# if __name__ == "__main__":
-#     TrainedBSTM().populate(reserve_jobs=True)
-#     TestedBSTM().populate(reserve_jobs=True)
-# #     # TrainedBSTM().plot()
-# #     TestRDBernoulliProcess().populate(reserve_jobs=True)
+    @property
+    def populated_from(self):
+        return TrainedBSTM()*StackGroup.Stacks().project(test_file_name='file_name') - 'file_name = test_file_name'
+
+
+    def _make_tuples(self, key):
+        b = TrainedBSTM().key2BSTM(key)
+        s_test = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
+
+        key['test_auc'] = b.auc(s_test.X, s_test.cells, average='macro')
+        key['test_auc_weighted'] = b.auc(s_test.X, s_test.cells, average='weighted')
+        key['test_cross_entropy'] = b.cross_entropy(s_test.X, s_test.cells)
+        self.insert1(key)
+
+
+if __name__ == "__main__":
+    TrainedBSTM().populate(reserve_jobs=True)
+    TestedBSTM().populate(reserve_jobs=True)
