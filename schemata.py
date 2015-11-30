@@ -137,41 +137,45 @@ class TrainedBSTM(dj.Computed):
         key['train_auc'] = b.auc(s.X, s.cells, average='macro')
         self.insert1(key)
 
-#
-# # @gitlog
-# # @schema
-# # class TestRDBernoulliProcess(dj.Computed):
-# #     definition = """
-# #     -> TrainedBSTM
-# #     -> TestingFiles
-# #     ---
-# #     test_cross_entropy      : double
-# #     test_auc                : double # ROC area under the curve
-# #     test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
-# #     """
-# #
-# #     @property
-# #     def populated_from(self):
-# #         return TrainedBSTM() * TestingFiles() * Stacks() & TrainedBSTM()
-# #
-# #     def _make_tuples(self, key):
-# #         if key['file_name'] != key['test_file_name']:
-# #             trained = (TrainedBSTM() & key).fetch1()
-# #             voxel = key['vx'], key['vy'], key['vz']
-# #             b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
-# #                                                linear_channels=key['linear_components'],
-# #                                                common_channels=key['common_components'])
-# #             b.set_parameters(**trained)
-# #
-# #             s = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
-# #
-# #             key['test_auc'] = b.auc(s.X, s.cells, average='macro')
-# #             key['test_auc_weighted'] = b.auc(s.X, s.cells, average='weighted')
-# #             key['test_cross_entropy'] = b.cross_entropy(s.X, s.cells)
-# #             self.insert1(key)
-# #
-#
+    def key2BSTM(self, key):
+        trained = (self() & key).fetch1()
+        voxel = key['vx'], key['vy'], key['vz']
+        b = RankDegenerateBernoulliProcess(voxel, quadratic_channels=key['quadratic_components'],
+                                           linear_channels=key['linear_components'],
+                                           common_channels=key['common_components'])
+        b.set_parameters(**trained)
+        return b
+
+
+@gitlog
+@schema
+class TestedBSTM(dj.Computed):
+    definition = """
+    -> TrainedBSTM
+    test_file_name          : varchar(100)  # filename
+    ---
+    test_cross_entropy      : double
+    test_auc                : double # ROC area under the curve
+    test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
+    """
+
+    @property
+    def populated_from(self):
+        return TrainedBSTM()*Stacks().project(test_file_name='file_name') - 'file_name = test_file_name'
+
+
+    def _make_tuples(self, key):
+        b = TrainedBSTM().key2BSTM(key)
+        s_test = Stack(key['test_file_name'], preprocessor=preprocessors[key['preprocessing']])
+
+        key['test_auc'] = b.auc(s_test.X, s_test.cells, average='macro')
+        key['test_auc_weighted'] = b.auc(s_test.X, s_test.cells, average='weighted')
+        key['test_cross_entropy'] = b.cross_entropy(s_test.X, s_test.cells)
+        self.insert1(key)
+
+
 if __name__ == "__main__":
     TrainedBSTM().populate(reserve_jobs=True)
+    TestedBSTM().populate(reserve_jobs=True)
 #     # TrainedBSTM().plot()
 #     TestRDBernoulliProcess().populate(reserve_jobs=True)
