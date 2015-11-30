@@ -5,8 +5,7 @@ from utils import *
 import seaborn as sns
 from djaddon import gitlog
 
-schema = dj.schema('datajoint_stack_cell_detection', locals())
-import git
+schema = dj.schema('fabee_cell_detection', locals())
 import itertools
 
 preprocessors = {
