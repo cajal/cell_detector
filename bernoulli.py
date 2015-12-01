@@ -63,43 +63,6 @@ class BernoulliProcess:
     def auc(self, X, cell_locations, **kwargs):
         return roc_auc_score(self._build_label_stack(X, cell_locations).ravel(), self.P(X).ravel(), **kwargs)
 
-    def visualize(self, X, cell_locations=None):
-        y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))
-        # Y = np.zeros(y_shape)
-        # if cell_locations is not None:
-        #     cell_locs = cell_locations - np.array([v // 2 for v in self.voxel])
-        # i, j, k = cell_locs.T
-        # Y[i, j, k] = 1
-
-        p_, parameters_ = self._build_probability_map(X)
-        p = th.function(parameters_, p_)
-        P = p(*self.parameters.values())
-
-        i, j, k = [v // 2 for v in self.voxel]
-
-        # X[i:-i, j:-j, k:-k, -1] = P
-        X0 = 0 * X
-        X0[i:-i, j:-j, k:-k] = P
-        print(P.min(), P.max())
-
-        fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
-        plt.ion()
-        plt.show()
-        for z in range(X.shape[2]):
-            ax[0].imshow(X[..., z], cmap=plt.cm.gray, interpolation='nearest', )
-            ax[1].imshow(X0[..., z], cmap=plt.cm.gray, interpolation='nearest')
-            if cell_locations is not None:
-                cells = cell_locations[cell_locations[:, 2] == z]
-
-                ax[0].plot(cells[:, 1], cells[:, 0], 'or', mfc='dodgerblue', alpha=.8)
-                ax[1].plot(cells[:, 1], cells[:, 0], 'or', mfc='dodgerblue', alpha=.8)
-            ax[0].axis('tight')
-            ax[1].axis('tight')
-            plt.draw()
-            input()
-            ax[0].clear()
-            ax[1].clear()
-
     def cross_entropy(self, X, cell_locations):
         ce, _ = self._build_crossentropy(X, cell_locations)
         return ce(*self.parameters.values()) / np.log(2)
