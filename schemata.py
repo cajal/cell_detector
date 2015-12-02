@@ -203,6 +203,7 @@ class TestedBSTM(dj.Computed):
     -> TrainedBSTM
     -> CellLocations
     test_file_name          : varchar(100)  # filename
+    test_labeller           : varchar(100) # descriptor of the labelling person/algorithm
     ---
     test_cross_entropy      : double
     test_auc                : double # ROC area under the curve
@@ -213,7 +214,7 @@ class TestedBSTM(dj.Computed):
     def populated_from(self):
         return TrainedBSTM() \
                * Stacks().project(test_file_name='file_name') \
-               * CellLocations().project(test_file_name='file_name') \
+               * CellLocations().project(test_file_name='file_name', test_labeller='labeller') \
                - 'file_name = test_file_name'
 
     def _make_tuples(self, key):
@@ -222,7 +223,7 @@ class TestedBSTM(dj.Computed):
         with h5py.File(key['test_file_name']) as fid:
             X = f(np.asarray(fid['stack'])).squeeze()
 
-        cells = (CellLocations().project('cells', test_file_name='file_name') & key).fetch1['cells']
+        cells = (CellLocations().project('cells', test_file_name='file_name', test_labeller='labeller') & key).fetch1['cells']
 
         key['test_auc'] = b.auc(X, cells, average='macro')
         key['test_auc_weighted'] = b.auc(X, cells, average='weighted')
