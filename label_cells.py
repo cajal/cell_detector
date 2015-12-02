@@ -8,24 +8,24 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 import argparse
 import seaborn as sns
+from schemata import *
 
 # plot_params = dict(cmap=plt.cm.gray, vmin=0, vmax=1)
 plot_params = dict(cmap=plt.cm.gray)
-plot_paramsP = dict(cmap=sns.blend_palette(['yellow','deeppink'], as_cmap=True), zorder=5)
+plot_paramsP = dict(cmap=sns.blend_palette(['yellow', 'deeppink'], as_cmap=True), zorder=5)
 
 
 class CellLabeler:
-    def __init__(self, stack, P=None):
-        self.stack = stack
-        self.X = stack.X.squeeze()
-        self.cells = stack.cells
+    def __init__(self, X, cells=None, P=None):
+        self.X = X
+        self.cells = cells
         self.cut = OrderedDict(zip(['row', 'col', 'depth'], [0, 0, 0]))
         self.cell_idx = 0
 
         self.P = 0 * self.X
         if P is not None:
-            i, j, k = [(i - j + 1)//2 for i, j in zip(self.X.shape, P.shape)]
-            print(i,j,k)
+            i, j, k = [(i - j + 1) // 2 for i, j in zip(self.X.shape, P.shape)]
+            print(i, j, k)
             self.P[i:-i, j:-j, k:-k] = P
 
         fig = plt.figure(facecolor='w')
@@ -58,13 +58,11 @@ class CellLabeler:
 
         if self.cells is not None:
             out = np.asarray(list(self.cut.values()), dtype=int)
-            d = np.sqrt(((self.cells - out) **2).sum(axis=1))
+            d = np.sqrt(((self.cells - out) ** 2).sum(axis=1))
         if self.cells is not None and np.any(d <= 5):
             color = 'dodgerblue'
         else:
             color = 'red'
-
-
 
         ax['row'].imshow(X0[row, :, :].T, **plot_params)
         ax['row'].imshow(P0[row, :, :].T, **plot_paramsP)
@@ -98,29 +96,29 @@ class CellLabeler:
         ax['depth'].set_title('row-col plane')
 
         if self.cells is not None:
-            dz = np.abs(self.cells[:,2] - out[2])/5
-            dz = dz*(dz <= 1)
+            dz = np.abs(self.cells[:, 2] - out[2]) / 5
+            dz = dz * (dz <= 1)
 
-            for cc, alpha in zip(c[dz > 0], 1-dz[dz >0]):
+            for cc, alpha in zip(c[dz > 0], 1 - dz[dz > 0]):
                 ax['depth'].plot(cc[1], cc[0], 'ok', mfc='dodgerblue', alpha=alpha)
 
             idx = c[:, 2] == depth
             if np.any(idx):
-                ax['depth'].plot(c[idx, 1], c[idx, 0], 'ok', mfc='lime', alpha=0.5)
+                ax['depth'].plot(c[idx, 1], c[idx, 0], 'ok', mfc='deeppink', alpha=0.5)
 
             idx = c[:, 0] == row
             if np.any(idx):
-                ax['row'].plot(c[idx, 1], c[idx, 2], 'ok', mfc='lime', alpha=0.5)
+                ax['row'].plot(c[idx, 1], c[idx, 2], 'ok', mfc='deeppink', alpha=0.5)
 
             idx = c[:, 1] == col
             if np.any(idx):
-                ax['col'].plot(c[idx, 2], c[idx, 0], 'ok', mfc='lime', alpha=0.5)
+                ax['col'].plot(c[idx, 2], c[idx, 0], 'ok', mfc='deeppink', alpha=0.5)
 
-            ax['3d'].plot(c[:, 0], c[:, 1], c[:, 2], 'ok', mfc='lime')
+            ax['3d'].plot(c[:, 0], c[:, 1], c[:, 2], 'ok', mfc='deeppink')
 
-        ax['3d'].plot([row, row], [0, nc], [depth, depth], '--',lw=2, color=color)
-        ax['3d'].plot([row, row], [col, col], [0, nd], '--', lw=2,  color=color)
-        ax['3d'].plot([0, nr], [col, col], [depth, depth], '--', lw=2 , color=color)
+        ax['3d'].plot([row, row], [0, nc], [depth, depth], '--', lw=2, color=color)
+        ax['3d'].plot([row, row], [col, col], [0, nd], '--', lw=2, color=color)
+        ax['3d'].plot([0, nr], [col, col], [depth, depth], '--', lw=2, color=color)
 
         plt.draw()
 
@@ -147,12 +145,12 @@ class CellLabeler:
                 self.cell_idx = min(len(self.cells) - 1, self.cell_idx + 1)
             for k, i in zip(self.cut, self.cells[self.cell_idx, :]):
                 self.cut[k] = i
-        if event.key == 's':
-            fname = input('Please enter filename:')
-            print('Saving')
-            self.stack.cells = self.cells
-            self.stack.save(fname)
-            self.fig.suptitle('File saved to %s' % (fname,))
+        # if event.key == 's':
+        #     fname = input('Please enter filename:')
+        #     print('Saving')
+        #     self.stack.cells = self.cells
+        #     self.stack.save(fname)
+        #     self.fig.suptitle('File saved to %s' % (fname,))
         if event.key == 'a':
             new_cell = np.asarray(list(self.cut.values()), dtype=int)
             print('Adding new cell at', new_cell)
@@ -190,15 +188,36 @@ class CellLabeler:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Manually label cells in a stack.')
 
-    parser.add_argument('file', type=str, help='hdf5 file containing the stack (dims row, col, depth, 1, channels)')
-    parser.add_argument('--probability', type=str, help='numpy file containing the probability map for file')
+    # parser.add_argument('file', type=str, help='hdf5 file containing the stack (dims row, col, depth, 1, channels)')
+    # parser.add_argument('--probability', type=str, help='numpy file containing the probability map for file')
+    #
+    # args = parser.parse_args()
 
-    args = parser.parse_args()
+    # s = Stack(args.file,
+    #           preprocessor=lambda x: average_channels(whiten(unsharp_masking(medianfilter(center(x.squeeze()))))))
+    # if args.probability:
+    #     P = np.load(args.probability)
+    # else:
+    #     P = None
 
-    s = Stack(args.file,
-              preprocessor=lambda x: whiten(unsharp_masking(medianfilter(center(x.squeeze())))).mean(axis=-1))
-    if args.probability:
-        P = np.load(args.probability)
-    else:
-        P = None
-    labeler = CellLabeler(s, P=P)
+    stacks = Stacks().project().fetch.as_dict()
+    for i, key in enumerate(stacks):
+        print(i, '\t'.join(key.values()))
+    key = stacks[int(input('Please select dataset: '))]
+    cells = (CellLocations() & key).project().fetch.as_dict()
+    if len(cells) > 0:
+        for i, ckey in enumerate(cells):
+            print(i, '\t'.join(ckey.values()))
+        selection = input('Do you want to load a set of locations? [press enter for no] ')
+        if len(selection) > 0:
+            key = cells[int(selection)]
+            cells = (CellLocations() & key).fetch1['cells']
+        else:
+            cells = None
+    prep = list(preprocessors.keys())
+    for i, name in enumerate(prep):
+        print(i, name)
+    X = (Stacks() & key).load(preprocessors[prep[int(input('Please select the preprocessing. '))]])
+
+
+    labeler = CellLabeler(X, cells)
