@@ -33,6 +33,7 @@ groups = dict(
     ],
 )
 
+
 @schema
 class StackGroup(dj.Lookup):
     definition = """
@@ -59,8 +60,14 @@ class Stacks(dj.Manual):
             for val in v:
                 self.insert1((k,) + val, skip_duplicates=True)
 
-    def load(self, preprocessor= lambda x: x):
-        with h5py.File(self.fetch1()['file_name']) as fid:
+    def load(self, key, preprocessor=None):
+        if preprocessor is None:
+            if 'preprocessing' in key:
+                preprocessor = preprocessors[key['preprocessing']]
+            else:
+                raise KeyError('No preprocessor specified')
+
+        with h5py.File((self & key).fetch1()['file_name']) as fid:
             X = np.asarray(fid['stack'], dtype=float)
             return preprocessor(X.squeeze())
 
@@ -89,6 +96,7 @@ class CellLocations(dj.Manual):
     ---
     cells               : longblob     # integer array with cell locations cells x 3
     """
+
 
 @schema
 class ComponentNumbers(dj.Lookup):
@@ -162,8 +170,7 @@ class TrainedBSTM(dj.Computed):
     """
 
     def _make_tuples(self, key):
-        f = preprocessors[key['preprocessing']]
-        X = (Stacks() & key).load(f)
+        X = Stacks().load(key)
         voxel = (VoxelSize() & key).fetch1['vx', 'vy', 'vz']
         b = RankDegenerateBernoulliProcess(voxel,
                                            quadratic_channels=key['quadratic_components'],
@@ -189,38 +196,69 @@ class TrainedBSTM(dj.Computed):
         return b
 
 
+
 @schema
 @gitlog
-@hdf5
-class TestedBSTM(dj.Computed):
+class BSTMCellScoreMap(dj.Computed):
     definition = """
-    -> TrainedBSTM
-    -> CellLocations
+    ->TrainedBSTM
     test_file_name          : varchar(100)  # filename
     test_labeller           : varchar(100) # descriptor of the labelling person/algorithm
     ---
-    test_cross_entropy      : double
-    test_auc                : double # ROC area under the curve
-    test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
+    map            : longblob  # a map as large as the underlying stack that has high values for locations where cells are predicted
     """
 
     @property
     def populated_from(self):
-        return TrainedBSTM() * (Stacks()*CellLocations()).project(test_file_name='file_name', test_labeller='labeller') - 'file_name = test_file_name'
+        # get the best models over parameters and restarts in training (sloppy model selection, I know)
+        best = (Stacks() * CellLocations() * VoxelSize()).aggregate(TrainedBSTM(), max_aucw='MAX(train_auc_weighted)')
+        # get the parameters for those models
+        models = best * TrainedBSTM() & 'train_auc_weighted = max_aucw'
+        # get all stacks within a group that the algorithm was not trained on
+        return models * (Stacks() * CellLocations() * VoxelSize()).project(test_file_name='file_name', test_labeller='labeller') \
+                - 'file_name = test_file_name'
 
     def _make_tuples(self, key):
+        cells = (CellLocations() & key).fetch1['cells']
         b = TrainedBSTM().key2BSTM(key)
-        f = preprocessors[key['preprocessing']]
-        X = (Stacks() & key).load(f)
-
-        cells = (CellLocations().project('cells', test_file_name='file_name', test_labeller='labeller') & key).fetch1['cells']
-
-        key['test_auc'] = b.auc(X, cells, average='macro')
-        key['test_auc_weighted'] = b.auc(X, cells, average='weighted')
-        key['test_cross_entropy'] = b.cross_entropy(X, cells)
+        X = Stacks().load(key)
+        P = b.P(X, full=True)
+        key['map'] = P
         self.insert1(key)
+
+
+# @schema
+# @gitlog
+# @hdf5
+# class TestedBSTM(dj.Computed):
+#     definition = """
+#     -> TrainedBSTM
+#     -> CellLocations
+#     test_file_name          : varchar(100)  # filename
+#     test_labeller           : varchar(100) # descriptor of the labelling person/algorithm
+#     ---
+#     test_cross_entropy      : double
+#     test_auc                : double # ROC area under the curve
+#     test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
+#     """
+#
+#     @property
+#     def populated_from(self):
+#         return TrainedBSTM() * (Stacks()*CellLocations()).project(test_file_name='file_name', test_labeller='labeller') - 'file_name = test_file_name'
+#
+#     def _make_tuples(self, key):
+#         b = TrainedBSTM().key2BSTM(key)
+#         f = preprocessors[key['preprocessing']]
+#         X = (Stacks() & key).load(f)
+#
+#         cells = (CellLocations().project('cells', test_file_name='file_name', test_labeller='labeller') & key).fetch1['cells']
+#
+#         key['test_auc'] = b.auc(X, cells, average='macro')
+#         key['test_auc_weighted'] = b.auc(X, cells, average='weighted')
+#         key['test_cross_entropy'] = b.cross_entropy(X, cells)
+#         self.insert1(key)
 
 
 if __name__ == "__main__":
     TrainedBSTM().populate(reserve_jobs=True)
-    # TestedBSTM().populate(reserve_jobs=True)
+    BSTMCellScoreMap().populate(reserve_jobs=True)

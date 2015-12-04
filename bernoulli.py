@@ -6,12 +6,12 @@ from scipy.optimize import minimize
 import theano as th
 from collections import OrderedDict
 from scipy.ndimage import convolve1d
+
 floatX = th.config.floatX
 T = th.tensor
 import theano.tensor.nnet.conv3d2d
 from scipy.special import beta
 from sklearn.metrics import roc_auc_score
-
 
 tensor5 = theano.tensor.TensorType('float64', 5 * [False])
 
@@ -24,17 +24,21 @@ class BernoulliProcess:
         self.voxel = voxel
         self.parameters = OrderedDict()
 
+    def _build_label_stack(self, X, cell_locations, full=False):
+        if full:
+            Y = np.zeros_like(X)
+            i, j, k = cell_locations.T
+            Y[i, j, k] = 1
+        else:
+            y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))
+            Y = np.zeros(y_shape)
 
-    def _build_label_stack(self, X, cell_locations):
-        y_shape = tuple(i - j + 1 for i, j in zip(X.shape, self.voxel))
-        Y = np.zeros(y_shape)
+            cell_locations = cell_locations[np.all(cell_locations < Y.shape, axis=1)
+                                            & np.all(cell_locations >= 0, axis=1)]
+            cell_locs = cell_locations - np.array([v // 2 for v in self.voxel])
 
-        cell_locations = cell_locations[np.all(cell_locations < Y.shape, axis=1)
-                                        & np.all(cell_locations >= 0, axis=1)]
-        cell_locs = cell_locations - np.array([v // 2 for v in self.voxel])
-
-        i, j, k = cell_locs.T
-        Y[i, j, k] = 1
+            i, j, k = cell_locs.T
+            Y[i, j, k] = 1
 
         return Y
 
@@ -55,10 +59,17 @@ class BernoulliProcess:
             if k in self.parameters:
                 self.parameters[k] = v
 
-    def P(self, X):
+    def P(self, X, full=False):
         p_, params_ = self._build_probability_map(X)
         p = th.function(params_, p_)
-        return p(*tuple(self.parameters.values()))
+        P = p(*tuple(self.parameters.values()))
+        if not full:
+            return P
+        else:
+            fullP = 0 * X
+            i, j, k = [(i - j + 1) // 2 for i, j in zip(X.shape, P.shape)]
+            fullP[i:-i, j:-j, k:-k] = P
+            return fullP
 
     def auc(self, X, cell_locations, **kwargs):
         return roc_auc_score(self._build_label_stack(X, cell_locations).ravel(), self.P(X).ravel(), **kwargs)
@@ -77,6 +88,7 @@ class BernoulliProcess:
             slices.append(slice(i, i + elem.size))
             shapes.append(elem.shape)
             i += elem.size
+
         def ravel(params):
             return np.hstack([e.ravel() for e in params])
 
@@ -88,7 +100,6 @@ class BernoulliProcess:
 
         def dobj(x):
             return ravel(dll(*unravel(x)))
-
 
         def callback(x):
             print('Cross entropy:', obj(x))
@@ -252,10 +263,9 @@ class RankDegenerateBernoulliProcess(BernoulliProcess):
 
         p_ = T.exp(exponent_).sum(axis=0)
         p_ = p_ / (1 + p_) * (
-            1 - 2*1e-8) + 1e-8  # apply logistic function to log p_ and add a bit of offset for numerical stability
+            1 - 2 * 1e-8) + 1e-8  # apply logistic function to log p_ and add a bit of offset for numerical stability
 
         return p_, params_
-
 
     def __str__(self):
         return """

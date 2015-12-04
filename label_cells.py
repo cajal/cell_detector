@@ -217,7 +217,7 @@ if __name__ == "__main__":
     prep = list(preprocessors.keys())
     for i, name in enumerate(prep):
         print(i, name)
-    X = (Stacks() & key).load(preprocessors[prep[int(input('Please select the preprocessing. '))]])
-
+    key['preprocessing'] = prep[int(input('Please select the preprocessing. '))]
+    X = Stacks().load(key)
 
     labeler = CellLabeler(X, cells)
