@@ -6,9 +6,10 @@ import seaborn as sns
 from djaddon import gitlog, hdf5
 import h5py
 from itertools import repeat
+import itertools
 
 schema = dj.schema('datajoint_cell_detection', locals())
-import itertools
+# schema = dj.schema('fabee_cell_detection', locals())
 
 preprocessors = {
     'histogram_equalization':
@@ -19,6 +20,8 @@ preprocessors = {
         lambda x: unsharp_masking(medianfilter(center(average_channels(x)))),
     'whitening':
         lambda x: whiten(unsharp_masking(medianfilter(center(average_channels(x))))),
+    'normalize':
+        lambda x: local_standardize(medianfilter(average_channels(x))),
 }
 
 groups = dict(
@@ -205,8 +208,15 @@ class BSTMCellScoreMap(dj.Computed):
     test_file_name          : varchar(100)  # filename
     test_labeller           : varchar(100) # descriptor of the labelling person/algorithm
     ---
-    map            : longblob  # a map as large as the underlying stack that has high values for locations where cells are predicted
     """
+
+    class ProbabilityMapSlice(dj.Part):
+        definition = """
+        -> BSTMCellScoreMap
+        slice_idx            : int # index into the depth dimension of the stack
+        ---
+        map                  : longblob # actual slice
+        """
 
     @property
     def populated_from(self):
@@ -223,42 +233,14 @@ class BSTMCellScoreMap(dj.Computed):
         b = TrainedBSTM().key2BSTM(key)
         X = Stacks().load(key)
         P = b.P(X, full=True)
-        key['map'] = P
         self.insert1(key)
-
-
-# @schema
-# @gitlog
-# @hdf5
-# class TestedBSTM(dj.Computed):
-#     definition = """
-#     -> TrainedBSTM
-#     -> CellLocations
-#     test_file_name          : varchar(100)  # filename
-#     test_labeller           : varchar(100) # descriptor of the labelling person/algorithm
-#     ---
-#     test_cross_entropy      : double
-#     test_auc                : double # ROC area under the curve
-#     test_auc_weighted       : double # ROC area under the curve weighted by class label imbalance
-#     """
-#
-#     @property
-#     def populated_from(self):
-#         return TrainedBSTM() * (Stacks()*CellLocations()).project(test_file_name='file_name', test_labeller='labeller') - 'file_name = test_file_name'
-#
-#     def _make_tuples(self, key):
-#         b = TrainedBSTM().key2BSTM(key)
-#         f = preprocessors[key['preprocessing']]
-#         X = (Stacks() & key).load(f)
-#
-#         cells = (CellLocations().project('cells', test_file_name='file_name', test_labeller='labeller') & key).fetch1['cells']
-#
-#         key['test_auc'] = b.auc(X, cells, average='macro')
-#         key['test_auc_weighted'] = b.auc(X, cells, average='weighted')
-#         key['test_cross_entropy'] = b.cross_entropy(X, cells)
-#         self.insert1(key)
+        pms = self.ProbabilityMapSlice()
+        for i in range(P.shape[2]):
+            key['slice_idx'] = i
+            key['map'] = P[...,i].squeeze()
+            pms.insert1(key)
 
 
 if __name__ == "__main__":
-    TrainedBSTM().populate(reserve_jobs=True)
+    # TrainedBSTM().populate(reserve_jobs=True)
     BSTMCellScoreMap().populate(reserve_jobs=True)
