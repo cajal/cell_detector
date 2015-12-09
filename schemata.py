@@ -242,5 +242,5 @@ class BSTMCellScoreMap(dj.Computed):
 
 
 if __name__ == "__main__":
-    # TrainedBSTM().populate(reserve_jobs=True)
-    BSTMCellScoreMap().populate(reserve_jobs=True)
+    TrainedBSTM().populate(reserve_jobs=True)
+    #BSTMCellScoreMap().populate(reserve_jobs=True)
