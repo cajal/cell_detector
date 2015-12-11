@@ -11,14 +11,14 @@ schema = dj.schema('datajoint_cell_detection', locals())
 import itertools
 
 preprocessors = {
-    'center_medianfilter_unsharpmask_histeq':
-        lambda x: histeq(unsharp_masking(medianfilter(center(x.squeeze()))), 500).mean(axis=-1),
-    'center_medianfilter':
-        lambda x: medianfilter(center(x.squeeze())).mean(axis=-1),
-    'center_medianfilter_unsharpmask':
-        lambda x: unsharp_masking(medianfilter(center(x.squeeze()))).mean(axis=-1),
-    'center_medianfilter_unsharpmask_whiten':
-        lambda x: whiten(unsharp_masking(medianfilter(center(x.squeeze())))).mean(axis=-1),
+    'histogram_equalization':
+        lambda x: histeq(unsharp_masking(medianfilter(center(average_channels(x)))), 500),
+    # 'center_medianfilter':
+    #     lambda x: medianfilter(center(average_channels(x))),
+    'basic':
+        lambda x: unsharp_masking(medianfilter(center(average_channels(x)))),
+    'whitening':
+        lambda x: whiten(unsharp_masking(medianfilter(center(average_channels(x))))),
 }
 
 groups = dict(
@@ -27,14 +27,11 @@ groups = dict(
         ('data/2015-08-25_13-49-54_2015-08-25_13-57-23.h5',),
         ('data/2015-08-25_14-36-29_2015-08-25_14-44-41.h5',),
     ],
+    twitch102015=[
+        ('data/2015-10-08_17-30-30.h5',),
+        ('data/2015-10-08_17-42-24.h5',),
+    ],
 )
-
-labeller = {
-    'data/2015-08-25_12-49-41_2015-08-25_13-02-18.h5': 'manolis',
-    'data/2015-08-25_13-49-54_2015-08-25_13-57-23.h5': 'manolis',
-    'data/2015-08-25_14-36-29_2015-08-25_14-44-41.h5': 'fabian',
-}
-
 
 @schema
 class StackGroup(dj.Lookup):
@@ -62,6 +59,11 @@ class Stacks(dj.Manual):
             for val in v:
                 self.insert1((k,) + val, skip_duplicates=True)
 
+    def load(self, preprocessor= lambda x: x):
+        with h5py.File(self.fetch1()['file_name']) as fid:
+            X = np.asarray(fid['stack'], dtype=float)
+            return preprocessor(X.squeeze())
+
 
 @schema
 class VoxelSize(dj.Lookup):
@@ -74,7 +76,8 @@ class VoxelSize(dj.Lookup):
     """
 
     contents = [
-        ('manolis082015', 17, 17, 15)
+        ('manolis082015', 17, 17, 15),
+        ('twitch102015', 17, 17, 15),
     ]
 
 
@@ -86,14 +89,6 @@ class CellLocations(dj.Manual):
     ---
     cells               : longblob     # integer array with cell locations cells x 3
     """
-
-    # def _prepare(self):
-    #     for k, v in groups.items():
-    #         for val in v:
-    #             with h5py.File(val[0]) as fid:
-    #                 cells = np.asarray(fid['cells'], dtype=int)
-    #                 self.insert1((k, val[0], labeller[val[0]], cells), skip_duplicates=True)
-
 
 @schema
 class ComponentNumbers(dj.Lookup):
@@ -110,7 +105,7 @@ class ComponentNumbers(dj.Lookup):
     @property
     def contents(self):
         yield from itertools.starmap(lambda a, b: a + b,
-                                     itertools.product(zip(range(2, 12, 2), range(2, 12, 2)), zip(range(2, 12, 2))))
+                                     itertools.product(zip(range(2, 10, 2), range(2, 10, 2)), zip(range(2, 10, 2))))
 
 
 @schema
@@ -125,7 +120,7 @@ class Repetitions(dj.Lookup):
 
     @property
     def contents(self):
-        yield from zip(range(10))
+        yield from zip(range(5))
 
 
 @schema
@@ -168,8 +163,7 @@ class TrainedBSTM(dj.Computed):
 
     def _make_tuples(self, key):
         f = preprocessors[key['preprocessing']]
-        with h5py.File(key['file_name']) as fid:
-            X = f(np.asarray(fid['stack'])).squeeze()
+        X = (Stacks() & key).load(f)
         voxel = (VoxelSize() & key).fetch1['vx', 'vy', 'vz']
         b = RankDegenerateBernoulliProcess(voxel,
                                            quadratic_channels=key['quadratic_components'],
@@ -212,16 +206,12 @@ class TestedBSTM(dj.Computed):
 
     @property
     def populated_from(self):
-        return TrainedBSTM() \
-               * Stacks().project(test_file_name='file_name') \
-               * CellLocations().project(test_file_name='file_name', test_labeller='labeller') \
-               - 'file_name = test_file_name'
+        return TrainedBSTM() * (Stacks()*CellLocations()).project(test_file_name='file_name', test_labeller='labeller') - 'file_name = test_file_name'
 
     def _make_tuples(self, key):
         b = TrainedBSTM().key2BSTM(key)
         f = preprocessors[key['preprocessing']]
-        with h5py.File(key['test_file_name']) as fid:
-            X = f(np.asarray(fid['stack'])).squeeze()
+        X = (Stacks() & key).load(f)
 
         cells = (CellLocations().project('cells', test_file_name='file_name', test_labeller='labeller') & key).fetch1['cells']
 
@@ -233,4 +223,4 @@ class TestedBSTM(dj.Computed):
 
 if __name__ == "__main__":
     TrainedBSTM().populate(reserve_jobs=True)
-    TestedBSTM().populate(reserve_jobs=True)
+    # TestedBSTM().populate(reserve_jobs=True)

@@ -6,26 +6,6 @@ from scipy.signal import medfilt, hamming
 from scipy.ndimage.filters import convolve1d
 
 
-def preprocess(X):
-    X = (X - X.mean()) / X.std()
-
-    X = medfilt(X, kernel_size=(1, 1, 5, 1, 1))
-
-    lp = np.array(X)
-    for i, ws in zip([0, 1, 2], [50, 50, 25]):
-        h = hamming(ws)
-        h /= h.sum()
-        convolve1d(lp, h, axis=i, output=lp)
-    X = X - lp
-
-    # X =  contrast_normalize(X.squeeze())
-    # X = (X - X.min()) / (X.max() - X.min())
-    # X -= X.min()
-    # return X
-    # return histeq(X, 500)
-
-    return normalize(whiten(X.squeeze()))
-
 def medianfilter(X, axis=2):
     ks = [1]*len(X.shape)
     ks[axis] = 5
@@ -46,7 +26,7 @@ def normalize(X):
     return (X - X.min()) / (X.max() - X.min())
 
 
-def histeq(x, bins=500):
+def histeq(x, bins=500, alpha=.9, beta=5):
     # get image histogram
 
     h, edges = np.histogram(x.ravel(), bins)
@@ -54,7 +34,7 @@ def histeq(x, bins=500):
     cdf /= cdf[-1]  # normalize
     # use linear interpolation of cdf to find new pixel values
     # out = np.interp(x.ravel(), edges[:-1], cdf)
-    target = stats.beta.ppf(cdf, .9, 5)
+    target = stats.beta.ppf(cdf, alpha, beta)
     out = np.interp(x.ravel(), edges[:-1], target)
     out -= out.mean()
     return out.reshape(x.shape)
@@ -71,22 +51,24 @@ def contrast_normalize(X, kernelsize=(120, 120, 30)):
 
 
 def whiten(X, n=4, cut_off=.4):
-    for i in range(X.shape[-1]):
-        Y = np.fft.fftn(X[..., i])
-        wx, wy, wz = X.shape[:3]
-        W = np.sqrt(np.fft.fftfreq(wx)[:, None, None] ** 2
-                    + np.fft.fftfreq(wy)[None, :, None] ** 2
-                    + np.fft.fftfreq(wz)[None, None, :] ** 2)
-        F = W * np.exp(- (W / cut_off) ** n)
+    Y = np.fft.fftn(X)
+    wx, wy, wz = X.shape
+    W = np.sqrt(np.fft.fftfreq(wx)[:, None, None] ** 2
+                + np.fft.fftfreq(wy)[None, :, None] ** 2
+                + np.fft.fftfreq(wz)[None, None, :] ** 2)
+    F = W * np.exp(- (W / cut_off) ** n)
 
-        # A = np.abs(Y*F)[::3,::3,::3]
-        # import matplotlib.pyplot as plt
-        # fig, ax = plt.subplots()
-        # ax.semilogy(W[::3,::3,::3].ravel(), A.ravel(), '.k',ms=1)
-        # plt.show()
-        X[..., i] = np.fft.ifftn(Y * F).real
+    # A = np.abs(Y*F)[::3,::3,::3]
+    # import matplotlib.pyplot as plt
+    # fig, ax = plt.subplots()
+    # ax.semilogy(W[::3,::3,::3].ravel(), A.ravel(), '.k',ms=1)
+    # plt.show()
+    X = np.fft.ifftn(Y * F).real
+    return X
 
-
+def average_channels(X):
+    if len(X.shape) > 3:
+        X = X.mean(axis=-1)
     return X
 
 

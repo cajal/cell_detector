@@ -14,7 +14,7 @@ class Stack:
 
     """
 
-    def __init__(self, stack, preprocessor=preprocess):
+    def __init__(self, stack, preprocessor):
 
         self.preprocessor = preprocessor
         self.load(stack)
