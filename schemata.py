@@ -207,6 +207,8 @@ class ValidationBSTM(dj.Computed):
     definition = """
     # trained BSTM models
     -> TrainedBSTM
+    val_file_name          : varchar(100)  # filename
+    val_labeller           : varchar(100) # descriptor of the labelling person/algorithm
     ---
 
     val_cross_entropy      : double   # in Bits/component
