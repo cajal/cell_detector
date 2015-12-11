@@ -7,7 +7,9 @@ from djaddon import gitlog, hdf5
 import h5py
 from itertools import repeat
 import itertools
+from djaddon.slack import notify_user
 
+APITOKEN = open('token.txt').read().strip()
 schema = dj.schema('datajoint_cell_detection', locals())
 # schema = dj.schema('fabee_cell_detection', locals())
 
@@ -205,6 +207,7 @@ class TrainedBSTM(dj.Computed):
 
 @schema
 @gitlog
+@notify_user('fabee', APITOKEN)
 class ValidationBSTM(dj.Computed):
     definition = """
     # trained BSTM models
