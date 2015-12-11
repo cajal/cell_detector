@@ -34,6 +34,9 @@ groups = dict(
         ('data/2015-10-08_17-30-30.h5',),
         ('data/2015-10-08_17-42-24.h5',),
     ],
+    jake=[
+        ('data/m6252Astack_002.h5',),
+    ]
 )
 
 
@@ -63,14 +66,15 @@ class Stacks(dj.Manual):
             for val in v:
                 self.insert1((k,) + val, skip_duplicates=True)
 
-    def load(self, key, preprocessor=None):
+    def load(self, key, preprocessor=None, test=False):
+        file_key = 'file_name' if not test else 'test_file_name'
         if preprocessor is None:
             if 'preprocessing' in key:
                 preprocessor = preprocessors[key['preprocessing']]
             else:
                 raise KeyError('No preprocessor specified')
 
-        with h5py.File((self & key).fetch1()['file_name']) as fid:
+        with h5py.File(key[file_key]) as fid:
             X = np.asarray(fid['stack'], dtype=float)
             return preprocessor(X.squeeze())
 
@@ -99,7 +103,6 @@ class CellLocations(dj.Manual):
     ---
     cells               : longblob     # integer array with cell locations cells x 3
     """
-
 
 @schema
 class ComponentNumbers(dj.Lookup):
@@ -208,6 +211,10 @@ class BSTMCellScoreMap(dj.Computed):
     test_file_name          : varchar(100)  # filename
     test_labeller           : varchar(100) # descriptor of the labelling person/algorithm
     ---
+    test_cross_entropy      : double   # in Bits/component
+    test_auc                : double   # in Bits/component
+    test_auc_weighted       : double   # in Bits/component
+
     """
 
     class ProbabilityMapSlice(dj.Part):
@@ -229,11 +236,20 @@ class BSTMCellScoreMap(dj.Computed):
                 - 'file_name = test_file_name'
 
     def _make_tuples(self, key):
-        cells = (CellLocations() & key).fetch1['cells']
         b = TrainedBSTM().key2BSTM(key)
-        X = Stacks().load(key)
-        P = b.P(X, full=True)
+
+        X_test = Stacks().load(key, test=True)
+        cells_test = (CellLocations().project(test_file_name='file_name', test_labeller='labeller', cells='cells')
+                        & key).fetch1['cells']
+        P = b.P(X_test, full=True)
+        key['test_cross_entropy'] = b.cross_entropy(X_test, cells_test)
+        key['test_auc_weighted'] = b.auc(X_test, cells_test, average='weighted')
+        key['test_auc'] = b.auc(X_test, cells_test, average='macro')
         self.insert1(key)
+        del key['test_cross_entropy']
+        del key['test_auc_weighted']
+        del key['test_auc']
+
         pms = self.ProbabilityMapSlice()
         for i in range(P.shape[2]):
             key['slice_idx'] = i
@@ -242,5 +258,5 @@ class BSTMCellScoreMap(dj.Computed):
 
 
 if __name__ == "__main__":
-    TrainedBSTM().populate(reserve_jobs=True)
-    #BSTMCellScoreMap().populate(reserve_jobs=True)
+    # TrainedBSTM().populate(reserve_jobs=True)
+    BSTMCellScoreMap().populate(reserve_jobs=True)

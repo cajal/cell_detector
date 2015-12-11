@@ -19,13 +19,13 @@ class CellLabeler:
     def __init__(self, X, cells=None, P=None):
         self.X = X
         self.cells = cells
+        self.cell_idx = 0 if cells is not None else None
+
         self.cut = OrderedDict(zip(['row', 'col', 'depth'], [0, 0, 0]))
-        self.cell_idx = 0
 
         self.P = 0 * self.X
         if P is not None:
             i, j, k = [(i - j + 1) // 2 for i, j in zip(self.X.shape, P.shape)]
-            print(i, j, k)
             self.P[i:-i, j:-j, k:-k] = P
 
         fig = plt.figure(facecolor='w')
@@ -49,18 +49,18 @@ class CellLabeler:
 
         P0[P0 < 0.005] = np.nan
 
-        c = self.cells
         row, col, depth = self.cut.values()
         nr, nc, nd = self.X.shape[:3]
         fig, ax = self.fig, self.ax
         for a in ax.values():
             a.clear()
 
-        if self.cells is not None:
+
+        if self.cells is not None and len(self.cells) > 0:
             out = np.asarray(list(self.cut.values()), dtype=int)
             d = np.sqrt(((self.cells - out) ** 2).sum(axis=1))
-        if self.cells is not None and np.any(d <= 5):
-            color = 'dodgerblue'
+            if np.any(d <= 5):
+                color = 'dodgerblue'
         else:
             color = 'red'
 
@@ -95,8 +95,9 @@ class CellLabeler:
         ax['depth'].axis('off')
         ax['depth'].set_title('row-col plane')
 
-        if self.cells is not None:
-            dz = np.abs(self.cells[:, 2] - out[2]) / 5
+        if self.cells is not None and len(self.cells) > 0:
+            c = self.cells
+            dz = np.abs(c[:, 2] - out[2]) / 5
             dz = dz * (dz <= 1)
 
             for cc, alpha in zip(c[dz > 0], 1 - dz[dz > 0]):
