@@ -40,14 +40,16 @@ def histeq(x, bins=500, alpha=.9, beta=5):
     return out.reshape(x.shape)
 
 
-def contrast_normalize(X, kernelsize=(120, 120, 30)):
+def local_standardize(X, kernelsize=(17, 17, 15)):
     local_sq = X ** 2
     local_mean = np.asarray(X)
     for axis, ks in enumerate(kernelsize):
-        w = np.ones(ks) / ks
+        # w = np.ones(ks) / ks
+        w = np.hamming(ks)
+        w /= w.sum()
         local_sq = convolve1d(local_sq, w, axis=axis, mode='reflect')
         local_mean = convolve1d(local_mean, w, axis=axis, mode='reflect')
-    return X / local_sq
+    return  (X - local_mean)/ np.sqrt(local_sq - local_mean**2)
 
 
 def whiten(X, n=4, cut_off=.4):
@@ -58,11 +60,6 @@ def whiten(X, n=4, cut_off=.4):
                 + np.fft.fftfreq(wz)[None, None, :] ** 2)
     F = W * np.exp(- (W / cut_off) ** n)
 
-    # A = np.abs(Y*F)[::3,::3,::3]
-    # import matplotlib.pyplot as plt
-    # fig, ax = plt.subplots()
-    # ax.semilogy(W[::3,::3,::3].ravel(), A.ravel(), '.k',ms=1)
-    # plt.show()
     X = np.fft.ifftn(Y * F).real
     return X
 
