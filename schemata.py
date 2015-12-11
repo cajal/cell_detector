@@ -104,6 +104,7 @@ class CellLocations(dj.Manual):
     cells               : longblob     # integer array with cell locations cells x 3
     """
 
+
 @schema
 class ComponentNumbers(dj.Lookup):
     definition = """
@@ -171,8 +172,8 @@ class TrainedBSTM(dj.Computed):
     gamma                    : longblob # linear  coefficients
     b                        : longblob # offsets
     train_cross_entropy      : double   # in Bits/component
-    train_auc                : double   # in Bits/component
-    train_auc_weighted       : double   # in Bits/component
+    train_auc                : double   # area under the curve
+    train_auc_weighted       : double   # area under the curve
     """
 
     def _make_tuples(self, key):
@@ -201,6 +202,7 @@ class TrainedBSTM(dj.Computed):
         b.set_parameters(**trained)
         return b
 
+
 @schema
 @gitlog
 class ValidationBSTM(dj.Computed):
@@ -212,14 +214,14 @@ class ValidationBSTM(dj.Computed):
     ---
 
     val_cross_entropy      : double   # in Bits/component
-    val_auc                : double   # in Bits/component
-    val_auc_weighted       : double   # in Bits/component
+    val_auc                : double   # area under the curve
+    val_auc_weighted       : double   # area under the curve
     """
 
     @property
     def populated_from(self):
         return TrainedBSTM().project() * TrainedBSTM().project(val_file_name='file_name', val_labeller='labeller') - \
-                'file_name=val_file_name' - 'labeller=val_labeller'
+               'file_name=val_file_name'
 
     def _make_tuples(self, key):
         X = Stacks().load(key, prefix='val_')
@@ -230,14 +232,56 @@ class ValidationBSTM(dj.Computed):
                                            common_channels=key['common_components']
                                            )
         cells = (CellLocations().project(val_file_name='file_name', val_labeller='labeller', cells='cells')
-                        & key).fetch1['cells']
-
+                 & key).fetch1['cells']
 
         key['val_cross_entropy'] = b.cross_entropy(X, cells)
         key['val_auc_weighted'] = b.auc(X, cells, average='weighted')
         key['val_auc'] = b.auc(X, cells, average='macro')
         self.insert1(key)
 
+
+# @schema
+# @gitlog
+# class TestedBSTM(dj.Computed):
+#     definition = """
+#     # trained BSTM models
+#     -> TrainedBSTM
+#     -> ValidationBSTM
+#     test_file_name          : varchar(100)  # filename
+#     test_labeller           : varchar(100)  # descriptor of the labelling person/algorithm
+#     ---
+#
+#     test_cross_entropy      : double   # in Bits/component
+#     test_auc                : double   # area under the curve
+#     test_auc_weighted       : double   # area under the curve
+#     """
+#
+#     @property
+#     def populated_from(self):
+#         best = (Stacks() * CellLocations() * VoxelSize()).aggregate(ValidationBSTM(),
+#                                                                     max_auc_weighted='MAX(val_auc_weighted)')
+#         selection = ValidationBSTM() * best & 'max_auc_weighted=val_auc_weighted'
+#
+#         ret =  selection * TrainedBSTM().project(test_file_name='file_name', test_labeller='labeller') \
+#                 - 'file_name=test_file_name' - 'val_file_name=test_file_name'
+#         # return TrainedBSTM().project() * TrainedBSTM().project(val_file_name='file_name', val_labeller='labeller') - \
+#         #        'file_name=val_file_name' - 'labeller=val_labeller'
+#
+#     def _make_tuples(self, key):
+#         X = Stacks().load(key, prefix='val_')
+#         voxel = (VoxelSize() & key).fetch1['vx', 'vy', 'vz']
+#         b = RankDegenerateBernoulliProcess(voxel,
+#                                            quadratic_channels=key['quadratic_components'],
+#                                            linear_channels=key['linear_components'],
+#                                            common_channels=key['common_components']
+#                                            )
+#         cells = (CellLocations().project(val_file_name='file_name', val_labeller='labeller', cells='cells')
+#                  & key).fetch1['cells']
+#
+#         key['val_cross_entropy'] = b.cross_entropy(X, cells)
+#         key['val_auc_weighted'] = b.auc(X, cells, average='weighted')
+#         key['val_auc'] = b.auc(X, cells, average='macro')
+#         self.insert1(key)
 
 
 @schema
@@ -269,15 +313,16 @@ class BSTMCellScoreMap(dj.Computed):
         # get the parameters for those models
         models = best * TrainedBSTM() & 'train_auc_weighted = max_aucw'
         # get all stacks within a group that the algorithm was not trained on
-        return models * (Stacks() * CellLocations() * VoxelSize()).project(test_file_name='file_name', test_labeller='labeller') \
-                - 'file_name = test_file_name'
+        return models * (Stacks() * CellLocations() * VoxelSize()).project(test_file_name='file_name',
+                                                                           test_labeller='labeller') \
+               - 'file_name = test_file_name'
 
     def _make_tuples(self, key):
         b = TrainedBSTM().key2BSTM(key)
 
         X_test = Stacks().load(key, test=True)
         cells_test = (CellLocations().project(test_file_name='file_name', test_labeller='labeller', cells='cells')
-                        & key).fetch1['cells']
+                      & key).fetch1['cells']
         P = b.P(X_test, full=True)
         key['test_cross_entropy'] = b.cross_entropy(X_test, cells_test)
         key['test_auc_weighted'] = b.auc(X_test, cells_test, average='weighted')
@@ -290,7 +335,7 @@ class BSTMCellScoreMap(dj.Computed):
         pms = self.ProbabilityMapSlice()
         for i in range(P.shape[2]):
             key['slice_idx'] = i
-            key['map'] = P[...,i].squeeze()
+            key['map'] = P[..., i].squeeze()
             pms.insert1(key)
 
 
@@ -298,3 +343,4 @@ if __name__ == "__main__":
     # TrainedBSTM().populate(reserve_jobs=True)
     ValidationBSTM().populate(reserve_jobs=True)
     # BSTMCellScoreMap().populate(reserve_jobs=True)
+    # TestedBSTM().populate()
