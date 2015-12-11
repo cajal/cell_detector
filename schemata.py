@@ -220,8 +220,8 @@ class ValidationBSTM(dj.Computed):
 
     @property
     def populated_from(self):
-        return TrainedBSTM().project() * TrainedBSTM().project(val_file_name='file_name', val_labeller='labeller') - \
-               'file_name=val_file_name'
+        return TrainedBSTM().project() * TrainedBSTM().project(val_file_name='file_name', val_labeller='labeller') \
+               - 'file_name=val_file_name OR labeller=val_labeller'
 
     def _make_tuples(self, key):
         X = Stacks().load(key, prefix='val_')
