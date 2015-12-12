@@ -204,45 +204,9 @@ class TrainedBSTM(dj.Computed):
         b.set_parameters(**trained)
         return b
 
-@schema
-@gitlog
-class ValidationBSTM(dj.Computed):
-    definition = """
-    # trained BSTM models
-    -> TrainedBSTM
-    ---
-
-    val_cross_entropy      : double   # in Bits/component
-    val_auc                : double   # in Bits/component
-    val_auc_weighted       : double   # in Bits/component
-    """
-
-    @property
-    def populated_from(self):
-        return TrainedBSTM().project() * TrainedBSTM().project(val_file_name='file_name', val_labeller='labeller') - \
-                'file_name=val_file_name' - 'labeller=val_labeller'
-
-    def _make_tuples(self, key):
-        X = Stacks().load(key, prefix='val_')
-        voxel = (VoxelSize() & key).fetch1['vx', 'vy', 'vz']
-        b = RankDegenerateBernoulliProcess(voxel,
-                                           quadratic_channels=key['quadratic_components'],
-                                           linear_channels=key['linear_components'],
-                                           common_channels=key['common_components']
-                                           )
-        cells = (CellLocations().project(val_file_name='file_name', val_labeller='labeller', cells='cells')
-                        & key).fetch1['cells']
-
-
-        key['val_cross_entropy'] = b.cross_entropy(X, cells)
-        key['val_auc_weighted'] = b.auc(X, cells, average='weighted')
-        key['val_auc'] = b.auc(X, cells, average='macro')
-        self.insert1(key)
-
-
-@schema
-@gitlog
 @notify_user('fabee', APITOKEN)
+@schema
+@gitlog
 class ValidationBSTM(dj.Computed):
     definition = """
     # trained BSTM models
@@ -262,13 +226,8 @@ class ValidationBSTM(dj.Computed):
                - 'file_name=val_file_name OR labeller=val_labeller'
 
     def _make_tuples(self, key):
+        b = TrainedBSTM().key2BSTM(key)
         X = Stacks().load(key, prefix='val_')
-        voxel = (VoxelSize() & key).fetch1['vx', 'vy', 'vz']
-        b = RankDegenerateBernoulliProcess(voxel,
-                                           quadratic_channels=key['quadratic_components'],
-                                           linear_channels=key['linear_components'],
-                                           common_channels=key['common_components']
-                                           )
         cells = (CellLocations().project(val_file_name='file_name', val_labeller='labeller', cells='cells')
                  & key).fetch1['cells']
 
@@ -382,6 +341,6 @@ class BSTMCellScoreMap(dj.Computed):
 
 if __name__ == "__main__":
     # TrainedBSTM().populate(reserve_jobs=True)
-    # ValidationBSTM().populate(reserve_jobs=True)
+    ValidationBSTM().populate(reserve_jobs=True)
     # BSTMCellScoreMap().populate(reserve_jobs=True)
-    TestedBSTM().populate(reserve_jobs=True)
+    # TestedBSTM().populate(reserve_jobs=True)
