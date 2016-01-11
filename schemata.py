@@ -318,7 +318,7 @@ class BSTMCellScoreMap(dj.Computed):
     def _make_tuples(self, key):
         b = TrainedBSTM().key2BSTM(key)
 
-        X_test = Stacks().load(key, test=True)
+        X_test = Stacks().load(key, prefix='test_')
         cells_test = (CellLocations().project(test_file_name='file_name', test_labeller='labeller', cells='cells')
                       & key).fetch1['cells']
         P = b.P(X_test, full=True)
