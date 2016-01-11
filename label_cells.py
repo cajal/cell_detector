@@ -56,13 +56,12 @@ class CellLabeler:
             a.clear()
 
 
+        color = 'red'
         if self.cells is not None and len(self.cells) > 0:
             out = np.asarray(list(self.cut.values()), dtype=int)
             d = np.sqrt(((self.cells - out) ** 2).sum(axis=1))
             if np.any(d <= 5):
                 color = 'dodgerblue'
-        else:
-            color = 'red'
 
         ax['row'].imshow(X0[row, :, :].T, **plot_params)
         ax['row'].imshow(P0[row, :, :].T, **plot_paramsP)
