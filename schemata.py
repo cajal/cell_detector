@@ -270,13 +270,9 @@ class TestedBSTM(dj.Computed):
 
 
     def _make_tuples(self, key):
+        b = TrainedBSTM().key2BSTM(key)
         X = Stacks().load(key, prefix='test_')
         voxel = (VoxelSize() & key).fetch1['vx', 'vy', 'vz']
-        b = RankDegenerateBernoulliProcess(voxel,
-                                           quadratic_channels=key['quadratic_components'],
-                                           linear_channels=key['linear_components'],
-                                           common_channels=key['common_components']
-                                           )
         cells = (CellLocations().project(test_file_name='file_name', test_labeller='labeller', cells='cells')
                  & key).fetch1['cells']
 
