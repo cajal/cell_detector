@@ -38,6 +38,9 @@ groups = dict(
     ],
     jake=[
         ('data/m6252Astack_002.h5',),
+    ],
+    sr101=[
+        ('data/2016-01-07_16-07-01_SR101.h5',)
     ]
 )
 
@@ -94,6 +97,7 @@ class VoxelSize(dj.Lookup):
     contents = [
         ('manolis082015', 17, 17, 15),
         ('twitch102015', 17, 17, 15),
+        ('sr101', 17, 17, 15),
     ]
 
 
@@ -204,7 +208,6 @@ class TrainedBSTM(dj.Computed):
         b.set_parameters(**trained)
         return b
 
-@notify_user('fabee', APITOKEN)
 @schema
 @gitlog
 class ValidationBSTM(dj.Computed):
@@ -239,7 +242,6 @@ class ValidationBSTM(dj.Computed):
 
 @schema
 @gitlog
-@notify_user('fabee', APITOKEN)
 class TestedBSTM(dj.Computed):
     definition = """
     # trained BSTM models
@@ -340,7 +342,7 @@ class BSTMCellScoreMap(dj.Computed):
 
 
 if __name__ == "__main__":
-    # TrainedBSTM().populate(reserve_jobs=True)
+    TrainedBSTM().populate(reserve_jobs=True)
     ValidationBSTM().populate(reserve_jobs=True)
-    # BSTMCellScoreMap().populate(reserve_jobs=True)
-    # TestedBSTM().populate(reserve_jobs=True)
+    BSTMCellScoreMap().populate(reserve_jobs=True)
+    TestedBSTM().populate(reserve_jobs=True)
