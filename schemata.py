@@ -9,7 +9,7 @@ from itertools import repeat
 import itertools
 from djaddon.slack import notify_user
 
-APITOKEN = open('token.txt').read().strip()
+
 schema = dj.schema('datajoint_cell_detection', locals())
 # schema = dj.schema('fabee_cell_detection', locals())
 
@@ -308,6 +308,7 @@ class BSTMCellScoreMap(dj.Computed):
     @property
     def populated_from(self):
         # get the best models over parameters and restarts in training (sloppy model selection, I know)
+        # TODO change that into validation set selection or even test set selelection
         best = (Stacks() * CellLocations() * VoxelSize()).aggregate(TrainedBSTM(), max_aucw='MAX(train_auc_weighted)')
         # get the parameters for those models
         models = best * TrainedBSTM() & 'train_auc_weighted = max_aucw'
