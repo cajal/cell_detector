@@ -52,9 +52,16 @@ if __name__ == '__main__':
     # --- command line parsing
     args = parse_command_line()
 
-    key = (ValidationBSTM() * StackGroup().aggregate(ValidationBSTM(),
-                                                     max_auc='MAX(val_auc_weighted)') & 'val_auc_weighted=max_auc' & dict(
-        group_name=args.stacktype)).fetch1()
+    key = (ValidationBSTM() * StackGroup().aggregate(
+                ValidationBSTM() & 'linear_components <= 4' & 'quadratic_components <= 4' & 'common_components <= 4',
+                max_auc='MAX(val_auc_weighted)') & 'val_auc_weighted=max_auc' & dict(group_name=args.stacktype)).fetch1()
+    #----------------------------------
+    # TODO: Remove this later
+    from IPython import embed
+    embed()
+    exit()
+    #----------------------------------
+
     voxel = key['vx'], key['vy'], key['vz']
 
     preprocessor = preprocessors[key['preprocessing']]
