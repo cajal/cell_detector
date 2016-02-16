@@ -1,8 +1,9 @@
-from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
-from utils import *
-import h5py
-import numpy as np
 import os
+
+import h5py
+
+from aod_cells.bernoulli import RankDegenerateBernoulliProcess
+from aod_cells.utils import *
 
 
 class Stack:

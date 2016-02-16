@@ -1,16 +1,13 @@
-import datajoint as dj
-from stack import Stack
-from bernoulli import FullBernoulliProcess, RankDegenerateBernoulliProcess
-from utils import *
-import seaborn as sns
-from djaddon import gitlog, hdf5
-import h5py
-from itertools import repeat
 import itertools
-from djaddon.slack import notify_user
 
+import h5py
 
-schema = dj.schema('datajoint_cell_detection', locals())
+import datajoint as dj
+from aod_cells.bernoulli import RankDegenerateBernoulliProcess
+from aod_cells.utils import *
+from djaddon import gitlog, hdf5
+
+schema = dj.schema('fabee_aod_cell_detection', locals())
 # schema = dj.schema('fabee_cell_detection', locals())
 
 preprocessors = {

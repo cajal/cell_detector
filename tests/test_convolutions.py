@@ -1,16 +1,15 @@
 import sys
 
 sys.path.append('./')
-from nose.tools import assert_true, assert_raises, assert_equal, raises
+from nose.tools import assert_true
 import numpy as np
-from bernoulli import RankDegenerateBernoulliProcess
+from aod_cells.bernoulli import RankDegenerateBernoulliProcess
 import theano as th
 
 floatX = th.config.floatX
 T = th.tensor
 import theano.tensor.nnet.conv3d2d
 from scipy import signal
-from scipy import ndimage
 import itertools
 
 

@@ -1,14 +1,10 @@
-from matplotlib import pyplot as plt
-from stack import Stack
-import matplotlib.pyplot as plt
-from utils import *
-from collections import OrderedDict
-from pprint import pprint
-import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
 import argparse
+from collections import OrderedDict
+
+import matplotlib.pyplot as plt
 import seaborn as sns
-from schemata import *
+
+from aod_cells.schemata import *
 
 # plot_params = dict(cmap=plt.cm.gray, vmin=0, vmax=1)
 plot_params = dict(cmap=plt.cm.gray)

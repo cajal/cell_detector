@@ -1,8 +1,10 @@
-from schemata import *
 import argparse
+
 import h5py
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+from aod_cells.schemata import *
 
 
 def parse_command_line():
